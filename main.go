@@ -1,0 +1,41 @@
+package main
+
+import (
+	"context"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"license-bot-go/bot"
+	"license-bot-go/config"
+	"license-bot-go/db"
+	"license-bot-go/tlsclient"
+)
+
+func main() {
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+	log.Println("Starting VIPA License Bot (Go)...")
+
+	cfg := config.MustLoad()
+
+	database, err := db.New(cfg)
+	if err != nil {
+		log.Fatalf("Database init failed: %v", err)
+	}
+	defer database.Close()
+
+	tlsClient := tlsclient.New()
+
+	b, err := bot.New(cfg, database, tlsClient)
+	if err != nil {
+		log.Fatalf("Bot init failed: %v", err)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := b.Run(ctx); err != nil {
+		log.Fatalf("Bot error: %v", err)
+	}
+}
