@@ -26,8 +26,7 @@ license-bot/
 │   ├── california.go        # California CDI scraper (needs CapSolver for Turnstile)
 │   ├── texas.go             # Texas TDI scraper (needs CapSolver for Turnstile)
 │   └── captcha/capsolver.go # CapSolver API client for Cloudflare Turnstile
-├── email/sendgrid.go        # SendGrid v3 API client for transactional emails
-├── sms/twilio.go            # DEPRECATED — being replaced by email/sendgrid.go
+├── email/resend.go          # Resend SDK client for transactional emails
 ├── tlsclient/client.go      # bogdanfinn/tls-client wrapper (anti-bot TLS fingerprinting)
 ├── Dockerfile               # Multi-stage build: golang:1.24-alpine → alpine:3.19
 ├── railway.toml             # Railway deployment config
@@ -37,7 +36,7 @@ license-bot/
 ## How The Two Bots Work Together
 
 1. **Onboarding Bot (Python)** — handles the 8-stage welcome flow, collects user info (name, state, phone, email), assigns @Licensed-Agent or @Student roles
-2. **License Bot (Go, this repo)** — watches for role changes via `GuildMemberUpdate`, auto-verifies licenses, manages 30-day deadlines, sends reminders via Discord DM + email
+2. **License Bot (Go, this repo)** — watches for role changes via `GuildMemberUpdate`, auto-verifies licenses, manages 30-day deadlines, sends reminders via Discord DM + Resend email
 
 The Go bot detects when the Python bot assigns roles and triggers verification automatically.
 
@@ -58,8 +57,8 @@ LICENSE_CHECK_CHANNEL_ID= # Channel to post verification results
 HIRING_LOG_CHANNEL_ID=    # Fallback channel for logs
 STUDENT_ROLE_ID=          # Discord role ID for @Student
 LICENSED_AGENT_ROLE_ID=   # Discord role ID for @Licensed-Agent
-SENDGRID_API_KEY=         # Optional (enables email notifications)
-EMAIL_FROM=               # SendGrid verified sender email
+RESEND_API_KEY=           # Optional (enables email notifications)
+EMAIL_FROM=               # Resend verified sender email
 EMAIL_FROM_NAME=          # Display name (defaults to "VIPA Insurance")
 ADMIN_NOTIFICATION_CHANNEL_ID= # Channel for admin alerts on expired deadlines
 ```
@@ -86,24 +85,16 @@ Deployed on Railway. Push to `main` branch triggers auto-deploy. The Dockerfile 
 - Auto-verify via GuildMemberUpdate (bot/auto_verify.go)
 - 30-day deadline system with verification_deadlines table
 - Background scheduler (bot/scheduler.go) — 24h loop, retries verification, sends reminders at day 7/14/21
-- SendGrid email client (email/sendgrid.go) — sends reminders, deadline expired, verification success emails
+- Resend email client (email/resend.go) — sends reminders, deadline expired, verification success emails
 - Email opt-in/opt-out slash commands (bot/email_prefs.go)
 - email_opt_in field added to onboarding_agents table + Agent struct + AgentUpdate
-- Config updated with SendGrid + admin channel env vars
+- Config updated with Resend + admin channel env vars
 - bot.go wired up: email client init, GuildMemberUpdate handler registered, scheduler started
 
 ### NEEDS TO BE DONE:
-1. **Delete sms/twilio.go** — It's the old Twilio SMS integration, fully replaced by email/sendgrid.go. The file couldn't be deleted due to filesystem permissions in the dev environment. Just `rm sms/twilio.go && rmdir sms/` and remove any remaining import references.
-2. **Build & verify** — Run `go build ./...` and `go vet ./...` to make sure everything compiles clean after removing the sms package. If there are any leftover `license-bot-go/sms` imports, remove them.
-3. **Commit & push** — Stage all changes and push to main:
-   ```bash
-   git add -A
-   git commit -m "Replace Twilio SMS with SendGrid email + add email opt-in/opt-out commands"
-   git push origin main
-   ```
-4. **Railway env vars** — After pushing, set these on Railway:
-   - `SENDGRID_API_KEY` — Get from sendgrid.com (free tier = 100 emails/day)
-   - `EMAIL_FROM` — A verified sender email in SendGrid
+1. **Railway env vars** — Set these on Railway:
+   - `RESEND_API_KEY` — Get from resend.com (free tier = 100 emails/day, 3,000/month)
+   - `EMAIL_FROM` — A verified sender email in Resend (e.g. notifications@yourdomain.com)
    - `EMAIL_FROM_NAME` — "VIPA Insurance" or whatever you want
    - `ADMIN_NOTIFICATION_CHANNEL_ID` — Discord channel ID for admin alerts
 

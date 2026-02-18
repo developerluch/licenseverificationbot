@@ -19,10 +19,10 @@ type Config struct {
 	LicensedAgentRoleID   string
 	LogLevel              string
 
-	// SendGrid Email
-	SendGridAPIKey string
-	EmailFrom      string
-	EmailFromName  string
+	// Resend Email
+	ResendAPIKey string
+	EmailFrom    string
+	EmailFromName string
 
 	// Admin notifications
 	AdminNotificationChannelID string
@@ -42,9 +42,9 @@ func MustLoad() *Config {
 		LicensedAgentRoleID:   os.Getenv("LICENSED_AGENT_ROLE_ID"),
 		LogLevel:              os.Getenv("LOG_LEVEL"),
 
-		SendGridAPIKey: os.Getenv("SENDGRID_API_KEY"),
-		EmailFrom:      os.Getenv("EMAIL_FROM"),
-		EmailFromName:  os.Getenv("EMAIL_FROM_NAME"),
+		ResendAPIKey: os.Getenv("RESEND_API_KEY"),
+		EmailFrom:    os.Getenv("EMAIL_FROM"),
+		EmailFromName: os.Getenv("EMAIL_FROM_NAME"),
 
 		AdminNotificationChannelID: os.Getenv("ADMIN_NOTIFICATION_CHANNEL_ID"),
 	}

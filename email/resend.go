@@ -1,22 +1,20 @@
 package email
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
+
+	"github.com/resend/resend-go/v3"
 )
 
-// Client sends transactional emails via SendGrid's v3 API.
+// Client sends transactional emails via Resend.
 type Client struct {
-	APIKey    string
-	FromEmail string
-	FromName  string
+	client    *resend.Client
+	fromEmail string
+	fromName  string
 }
 
-// NewClient returns a configured SendGrid client, or nil if not configured.
+// NewClient returns a configured Resend client, or nil if not configured.
 func NewClient(apiKey, fromEmail, fromName string) *Client {
 	if apiKey == "" || fromEmail == "" {
 		return nil
@@ -25,31 +23,10 @@ func NewClient(apiKey, fromEmail, fromName string) *Client {
 		fromName = "VIPA Insurance"
 	}
 	return &Client{
-		APIKey:    apiKey,
-		FromEmail: fromEmail,
-		FromName:  fromName,
+		client:    resend.NewClient(apiKey),
+		fromEmail: fromEmail,
+		fromName:  fromName,
 	}
-}
-
-type sgMail struct {
-	Personalizations []sgPersonalization `json:"personalizations"`
-	From             sgAddress           `json:"from"`
-	Subject          string              `json:"subject"`
-	Content          []sgContent         `json:"content"`
-}
-
-type sgPersonalization struct {
-	To []sgAddress `json:"to"`
-}
-
-type sgAddress struct {
-	Email string `json:"email"`
-	Name  string `json:"name,omitempty"`
-}
-
-type sgContent struct {
-	Type  string `json:"type"`
-	Value string `json:"value"`
 }
 
 // Send sends an email to the given address.
@@ -58,41 +35,21 @@ func (c *Client) Send(toEmail, toName, subject, htmlBody string) error {
 		return fmt.Errorf("email: client not configured")
 	}
 
-	payload := sgMail{
-		Personalizations: []sgPersonalization{
-			{To: []sgAddress{{Email: toEmail, Name: toName}}},
-		},
-		From:    sgAddress{Email: c.FromEmail, Name: c.FromName},
+	from := fmt.Sprintf("%s <%s>", c.fromName, c.fromEmail)
+
+	params := &resend.SendEmailRequest{
+		From:    from,
+		To:      []string{toEmail},
 		Subject: subject,
-		Content: []sgContent{
-			{Type: "text/html", Value: htmlBody},
-		},
+		Html:    htmlBody,
 	}
 
-	body, err := json.Marshal(payload)
+	sent, err := c.client.Emails.Send(params)
 	if err != nil {
-		return fmt.Errorf("email: marshal: %w", err)
+		return fmt.Errorf("email: resend send: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, "https://api.sendgrid.com/v3/mail/send", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("email: build request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("email: request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("email: HTTP %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	log.Printf("Email sent to %s (%s): %s", toEmail, toName, subject)
+	log.Printf("Email sent to %s (%s): %s [id=%s]", toEmail, toName, subject, sent.Id)
 	return nil
 }
 
