@@ -26,6 +26,10 @@ type Config struct {
 
 	// Admin notifications
 	AdminNotificationChannelID string
+
+	// Onboarding bot bridge
+	OnboardingAPIURL   string
+	OnboardingAPIToken string
 }
 
 func MustLoad() *Config {
@@ -47,6 +51,9 @@ func MustLoad() *Config {
 		EmailFromName: os.Getenv("EMAIL_FROM_NAME"),
 
 		AdminNotificationChannelID: os.Getenv("ADMIN_NOTIFICATION_CHANNEL_ID"),
+
+		OnboardingAPIURL:   os.Getenv("ONBOARDING_API_URL"),
+		OnboardingAPIToken: os.Getenv("ONBOARDING_API_TOKEN"),
 	}
 
 	if cfg.LogLevel == "" {

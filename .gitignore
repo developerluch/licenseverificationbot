@@ -1,5 +1,6 @@
-# Binaries (the compiled output, not the bot/ source directory)
-/bot
+# Binaries (compiled output only — NOT the bot/ source directory)
+# Ignore a compiled binary named 'license-bot' at the root
+/license-bot
 *.exe
 
 # Environment

@@ -117,6 +117,30 @@ func (b *Bot) Run(ctx context.Context) error {
 			Name:        "email-optout",
 			Description: "Stop receiving email notifications",
 		},
+		{
+			Name:        "npn",
+			Description: "Look up an agent's NPN (National Producer Number) by name",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "first_name",
+					Description: "Agent's first name",
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "last_name",
+					Description: "Agent's last name",
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "state",
+					Description: "State to search (2-letter code). Leave blank to search all 31+ states",
+					Required:    false,
+				},
+			},
+		},
 	}
 
 	for _, cmd := range commands {
@@ -148,5 +172,7 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		b.handleEmailOptIn(s, i)
 	case "email-optout":
 		b.handleEmailOptOut(s, i)
+	case "npn":
+		b.handleNPNLookup(s, i)
 	}
 }

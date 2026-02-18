@@ -61,16 +61,34 @@ func (b *Bot) onLicensedRoleAdded(s *discordgo.Session, e *discordgo.GuildMember
 
 	log.Printf("Auto-verify: Licensed role added for %s (%s)", e.User.Username, userID)
 
-	// Look up agent info from DB (set by onboarding bot)
+	// Look up agent info from local DB first
 	agent, err := b.db.GetAgent(context.Background(), userIDInt)
-	if err != nil || agent == nil {
-		log.Printf("Auto-verify: No agent record for %s, skipping auto-verify", userID)
-		return
+
+	var firstName, lastName, state string
+	if err == nil && agent != nil && agent.FirstName != "" && agent.State != "" {
+		firstName = agent.FirstName
+		lastName = agent.LastName
+		state = agent.State
+		log.Printf("Auto-verify: Found agent in local DB: %s %s (%s)", firstName, lastName, state)
+	} else {
+		// Fallback: try the Python onboarding bot's API
+		log.Printf("Auto-verify: No local record for %s, trying onboarding bridge...", userID)
+		fn, ln, st, ok := b.syncFromOnboarding(context.Background(), userID, guildIDInt)
+		if !ok {
+			log.Printf("Auto-verify: No data from onboarding bridge for %s either", userID)
+			b.dmUser(s, userID,
+				"Welcome! We see you're a licensed agent. "+
+					"Please use `/verify first_name:YourFirst last_name:YourLast state:XX` "+
+					"to verify your license and get access to agent channels.")
+			return
+		}
+		firstName = fn
+		lastName = ln
+		state = st
+		log.Printf("Auto-verify: Got data from onboarding bridge: %s %s (%s)", firstName, lastName, state)
 	}
 
-	if agent.FirstName == "" || agent.LastName == "" || agent.State == "" {
-		log.Printf("Auto-verify: Incomplete agent info for %s (name: %s %s, state: %s)",
-			userID, agent.FirstName, agent.LastName, agent.State)
+	if firstName == "" || state == "" {
 		b.dmUser(s, userID,
 			"Welcome! We see you're a licensed agent. "+
 				"Please use `/verify first_name:YourFirst last_name:YourLast state:XX` "+
@@ -82,26 +100,26 @@ func (b *Bot) onLicensedRoleAdded(s *discordgo.Session, e *discordgo.GuildMember
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	result := b.performVerification(ctx, agent.FirstName, agent.LastName, agent.State, userIDInt, guildIDInt)
+	result := b.performVerification(ctx, firstName, lastName, state, userIDInt, guildIDInt)
 
 	if result.Found && result.Match != nil {
-		log.Printf("Auto-verify: SUCCESS for %s %s (%s)", agent.FirstName, agent.LastName, agent.State)
+		log.Printf("Auto-verify: SUCCESS for %s %s (%s)", firstName, lastName, state)
 
 		// Mark any existing deadline as verified
 		b.db.MarkDeadlineVerified(context.Background(), userIDInt)
 
 		// Send DM with license details
-		b.dmVerificationSuccess(s, e, result.Match, agent.State)
+		b.dmVerificationSuccess(s, e, result.Match, state)
 
 		// Post to channel
-		b.postAutoVerifyToChannel(s, e, result.Match, agent.State)
+		b.postAutoVerifyToChannel(s, e, result.Match, state)
 
 	} else {
 		log.Printf("Auto-verify: FAILED for %s %s (%s): %s",
-			agent.FirstName, agent.LastName, agent.State, result.Error+result.Message)
+			firstName, lastName, state, result.Error+result.Message)
 
 		// Set a 30-day deadline
-		b.createVerificationDeadline(userIDInt, guildIDInt, agent.FirstName, agent.LastName, agent.State, "pending_licensed")
+		b.createVerificationDeadline(userIDInt, guildIDInt, firstName, lastName, state, "pending_licensed")
 
 		b.dmUser(s, userID, fmt.Sprintf(
 			"**License Verification Pending**\n\n"+
@@ -113,7 +131,7 @@ func (b *Bot) onLicensedRoleAdded(s *discordgo.Session, e *discordgo.GuildMember
 				"1. Use `/verify first_name:YourFirst last_name:YourLast state:XX`\n"+
 				"2. Contact your upline for manual verification\n\n"+
 				"We'll check again periodically and send you reminders.",
-			agent.FirstName, agent.LastName, agent.State))
+			firstName, lastName, state))
 	}
 }
 
@@ -132,16 +150,21 @@ func (b *Bot) onStudentRoleAdded(s *discordgo.Session, e *discordgo.GuildMemberU
 
 	log.Printf("Auto-verify: Student role added for %s (%s)", e.User.Username, userID)
 
-	// Look up agent info
+	// Look up agent info from local DB, then onboarding bridge
+	var firstName, lastName, state string
 	agent, err := b.db.GetAgent(context.Background(), userIDInt)
-	if err != nil || agent == nil {
-		log.Printf("Auto-verify: No agent record for student %s", userID)
-		return
+	if err == nil && agent != nil && agent.FirstName != "" {
+		firstName = agent.FirstName
+		lastName = agent.LastName
+		state = agent.State
+	} else {
+		fn, ln, st, ok := b.syncFromOnboarding(context.Background(), userID, guildIDInt)
+		if ok {
+			firstName = fn
+			lastName = ln
+			state = st
+		}
 	}
-
-	firstName := agent.FirstName
-	lastName := agent.LastName
-	state := agent.State
 	if firstName == "" {
 		firstName = e.User.Username
 	}
