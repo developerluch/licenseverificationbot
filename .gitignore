@@ -1,5 +1,5 @@
-# Binaries
-bot
+# Binaries (the compiled output, not the bot/ source directory)
+/bot
 *.exe
 
 # Environment

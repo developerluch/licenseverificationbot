@@ -163,18 +163,20 @@ func (s *NAICScraper) query(ctx context.Context, params url.Values) ([]LicenseRe
 		fullName := r.Name
 
 		results = append(results, LicenseResult{
-			Found:          true,
-			Active:         active,
-			Resident:       resident,
-			FullName:       fullName,
-			LicenseNumber:  r.LicenseNumber.String(),
-			NPN:            r.NPN,
-			State:          s.stateCode,
-			LicenseType:    r.LicenseType,
-			Status:         r.LicenseType, // NAIC doesn't have separate status, it's embedded in type
-			ExpirationDate: r.LicenseExpirationDate,
-			IssueDate:      r.LicenseEffectiveDate,
-			LOAs:           loas,
+			Found:           true,
+			Active:          active,
+			Resident:        resident,
+			FullName:        fullName,
+			LicenseNumber:   r.LicenseNumber.String(),
+			NPN:             r.NPN,
+			State:           s.stateCode,
+			LicenseType:     r.LicenseType,
+			Status:          r.LicenseType, // NAIC doesn't have separate status, it's embedded in type
+			ExpirationDate:  r.LicenseExpirationDate,
+			IssueDate:       r.LicenseEffectiveDate,
+			LOAs:            loas,
+			BusinessAddress: strings.TrimSpace(r.BusinessAddress),
+			BusinessPhone:   strings.TrimSpace(r.BusinessPhone),
 		})
 	}
 

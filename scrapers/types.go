@@ -7,19 +7,23 @@ import (
 
 // LicenseResult holds the standardized result from any state DOI lookup.
 type LicenseResult struct {
-	Found          bool
-	Active         bool
-	Resident       bool
-	FullName       string
-	LicenseNumber  string
-	NPN            string
-	State          string
-	LicenseType    string
-	Status         string
-	ExpirationDate string
-	IssueDate      string
-	LOAs           string
-	Error          string
+	Found           bool
+	Active          bool
+	Resident        bool
+	FullName        string
+	LicenseNumber   string
+	NPN             string
+	State           string
+	LicenseType     string
+	Status          string
+	ExpirationDate  string
+	IssueDate       string
+	LOAs            string
+	BusinessAddress string
+	BusinessPhone   string
+	Email           string
+	County          string
+	Error           string
 }
 
 // IsLifeLicensed returns true if the license is active and covers life insurance.

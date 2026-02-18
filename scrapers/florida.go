@@ -210,16 +210,20 @@ func (s *FloridaScraper) parseSearchResults(ctx context.Context, session interfa
 
 		status := detail["status"]
 		result := LicenseResult{
-			Found:          true,
-			State:          "FL",
-			FullName:       fullName,
-			LicenseNumber:  licenseNumber,
-			Status:         status,
-			Active:         strings.EqualFold(status, "VALID"),
-			LicenseType:    detail["type"],
-			NPN:            detail["npn"],
-			ExpirationDate: detail["expiration"],
-			IssueDate:      detail["issue_date"],
+			Found:           true,
+			State:           "FL",
+			FullName:        fullName,
+			LicenseNumber:   licenseNumber,
+			Status:          status,
+			Active:          strings.EqualFold(status, "VALID"),
+			LicenseType:     detail["type"],
+			NPN:             detail["npn"],
+			ExpirationDate:  detail["expiration"],
+			IssueDate:       detail["issue_date"],
+			BusinessAddress: detail["business_address"],
+			BusinessPhone:   detail["phone"],
+			Email:           detail["email"],
+			County:          detail["county"],
 		}
 		results = append(results, result)
 	})
