@@ -40,7 +40,16 @@ class VerifyCog(commands.Cog, name="Verify"):
         state: str = None,
         phone: str = None,
     ) -> None:
-        await interaction.response.defer(ephemeral=True)
+        # Defer ASAP — Discord gives only 3 seconds
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except discord.NotFound:
+            # Interaction token expired or was consumed by another app
+            logger.warning("Interaction expired before defer — possible duplicate /verify registration")
+            return
+        except Exception as e:
+            logger.error(f"Defer failed: {e}")
+            return
         member = interaction.user
         logger.info(f"License verify: {first_name} {last_name} ({state}) by {member}")
 
@@ -173,7 +182,14 @@ class VerifyCog(commands.Cog, name="Verify"):
         description="View your license check history",
     )
     async def license_history(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except discord.NotFound:
+            logger.warning("Interaction expired before defer on /license-history")
+            return
+        except Exception as e:
+            logger.error(f"Defer failed on /license-history: {e}")
+            return
 
         checks = await self.db.get_check_history(interaction.user.id, limit=5)
         if not checks:

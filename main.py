@@ -59,15 +59,16 @@ async def setup_hook():
         except Exception as e:
             logger.error(f"Failed to load {cog}: {e}")
 
-    # Sync slash commands
+    # Sync slash commands — clear first to avoid stale registrations
     if settings.GUILD_ID:
         guild = discord.Object(id=settings.GUILD_ID)
+        bot.tree.clear_commands(guild=guild)
         bot.tree.copy_global_to(guild=guild)
-        await bot.tree.sync(guild=guild)
-        logger.info(f"Synced commands to guild {settings.GUILD_ID}")
+        synced = await bot.tree.sync(guild=guild)
+        logger.info(f"Synced {len(synced)} commands to guild {settings.GUILD_ID}: {[c.name for c in synced]}")
     else:
-        await bot.tree.sync()
-        logger.info("Synced commands globally")
+        synced = await bot.tree.sync()
+        logger.info(f"Synced {len(synced)} commands globally")
 
 
 bot.setup_hook = setup_hook
