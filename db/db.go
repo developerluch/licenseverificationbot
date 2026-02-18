@@ -71,6 +71,7 @@ func (d *DB) migrate(ctx context.Context) error {
             last_name TEXT,
             phone_number TEXT,
             email TEXT,
+            email_opt_in BOOLEAN DEFAULT FALSE,
             state TEXT,
             license_verified BOOLEAN DEFAULT FALSE,
             license_npn TEXT,
@@ -78,6 +79,11 @@ func (d *DB) migrate(ctx context.Context) error {
             created_at TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW()
         )`,
+		// Migration: add email_opt_in column if it doesn't exist (for existing DBs)
+		`DO $$ BEGIN
+            ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS email_opt_in BOOLEAN DEFAULT FALSE;
+         EXCEPTION WHEN others THEN NULL;
+         END $$`,
 		`CREATE TABLE IF NOT EXISTS verification_deadlines (
             discord_id BIGINT PRIMARY KEY,
             guild_id BIGINT NOT NULL,
@@ -136,6 +142,8 @@ type AgentUpdate struct {
 	FirstName       *string
 	LastName        *string
 	PhoneNumber     *string
+	Email           *string
+	EmailOptIn      *bool
 	State           *string
 	LicenseVerified *bool
 	LicenseNPN      *string
@@ -172,6 +180,16 @@ func (d *DB) UpsertAgent(ctx context.Context, discordID, guildID int64, updates 
 	if updates.PhoneNumber != nil {
 		sets = append(sets, fmt.Sprintf("phone_number = $%d", argN))
 		args = append(args, *updates.PhoneNumber)
+		argN++
+	}
+	if updates.Email != nil {
+		sets = append(sets, fmt.Sprintf("email = $%d", argN))
+		args = append(args, *updates.Email)
+		argN++
+	}
+	if updates.EmailOptIn != nil {
+		sets = append(sets, fmt.Sprintf("email_opt_in = $%d", argN))
+		args = append(args, *updates.EmailOptIn)
 		argN++
 	}
 	if updates.State != nil {
@@ -226,6 +244,7 @@ type Agent struct {
 	LastName        string
 	PhoneNumber     string
 	Email           string
+	EmailOptIn      bool
 	State           string
 	LicenseVerified bool
 	LicenseNPN      string
@@ -238,11 +257,12 @@ func (d *DB) GetAgent(ctx context.Context, discordID int64) (*Agent, error) {
 		`SELECT discord_id, guild_id,
          COALESCE(first_name, ''), COALESCE(last_name, ''),
          COALESCE(phone_number, ''), COALESCE(email, ''),
+         COALESCE(email_opt_in, false),
          COALESCE(state, ''), COALESCE(license_verified, false),
          COALESCE(license_npn, ''), COALESCE(current_stage, 'welcome')
          FROM onboarding_agents WHERE discord_id = $1`, discordID,
 	).Scan(&a.DiscordID, &a.GuildID, &a.FirstName, &a.LastName,
-		&a.PhoneNumber, &a.Email, &a.State, &a.LicenseVerified,
+		&a.PhoneNumber, &a.Email, &a.EmailOptIn, &a.State, &a.LicenseVerified,
 		&a.LicenseNPN, &a.CurrentStage)
 
 	if err == sql.ErrNoRows {
