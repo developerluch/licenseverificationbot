@@ -1,6 +1,7 @@
 # VIPA License Bot — Database layer
-# Connects to the SAME database as onboarding-bot (shared schema).
-# Only adds the license_checks table if it doesn't exist.
+# Creates its own copy of the onboarding_agents table if it doesn't exist.
+# When deployed alongside the onboarding bot with a shared DB, both use the same table.
+# When deployed separately, the license bot creates the table itself.
 import logging
 from datetime import datetime, timezone
 
@@ -10,8 +11,45 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-# Additional tables this bot needs (onboarding-bot owns the main schema)
+# Full schema — license bot creates these if they don't exist
 LICENSE_BOT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS onboarding_agents (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    discord_id          INTEGER UNIQUE NOT NULL,
+    guild_id            INTEGER NOT NULL,
+    full_name           TEXT,
+    agency              TEXT,
+    upline_manager      TEXT,
+    experience_level    TEXT,
+    license_status      TEXT DEFAULT 'none',
+    production_written  TEXT,
+    lead_source         TEXT,
+    vision_goals        TEXT,
+    comp_pct            TEXT,
+    show_comp           INTEGER DEFAULT 0,
+    npn                 TEXT,
+    license_number      TEXT,
+    home_state          TEXT,
+    resident_state      TEXT,
+    verified_at         TEXT,
+    current_stage       INTEGER DEFAULT 1,
+    notification_pref   TEXT DEFAULT 'discord',
+    contracting_booked  INTEGER DEFAULT 0,
+    contracting_completed INTEGER DEFAULT 0,
+    setup_completed     INTEGER DEFAULT 0,
+    joined_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    form_completed_at   TEXT,
+    sorted_at           TEXT,
+    activated_at        TEXT,
+    kicked_at           TEXT,
+    kick_reason         TEXT,
+    phone_number        TEXT,
+    license_verified    INTEGER DEFAULT 0,
+    license_expiry      TEXT,
+    last_license_check  TEXT,
+    last_active         TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS license_checks (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     agent_discord_id    INTEGER NOT NULL,
@@ -20,6 +58,14 @@ CREATE TABLE IF NOT EXISTS license_checks (
     status              TEXT,
     details             TEXT,
     notified            INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS agent_activity_log (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_discord_id    INTEGER NOT NULL,
+    event_type          TEXT NOT NULL,
+    details             TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_license_checks_agent
@@ -39,28 +85,14 @@ class LicenseDB:
         return self._db_path
 
     async def init(self) -> None:
-        """Create license-specific tables + run migrations on shared tables."""
+        """Create all tables if they don't exist."""
         async with aiosqlite.connect(self._path()) as db:
             await db.executescript(LICENSE_BOT_SCHEMA)
-
-            # Ensure onboarding_agents has the columns we need
-            migrations = [
-                "ALTER TABLE onboarding_agents ADD COLUMN phone_number TEXT",
-                "ALTER TABLE onboarding_agents ADD COLUMN license_verified INTEGER DEFAULT 0",
-                "ALTER TABLE onboarding_agents ADD COLUMN license_expiry TEXT",
-                "ALTER TABLE onboarding_agents ADD COLUMN last_license_check TEXT",
-            ]
-            for sql in migrations:
-                try:
-                    await db.execute(sql)
-                except Exception:
-                    pass  # Column already exists
-
             await db.commit()
-        logger.info(f"License DB initialized (shared: {self._db_path})")
+        logger.info(f"License DB initialized at {self._db_path}")
 
     # ------------------------------------------------------------------ #
-    #  Read from shared onboarding_agents table                            #
+    #  Read from onboarding_agents table                                   #
     # ------------------------------------------------------------------ #
 
     async def get_licensed_agents(self) -> list[dict]:
@@ -89,11 +121,29 @@ class LicenseDB:
                 return dict(row) if row else None
 
     # ------------------------------------------------------------------ #
-    #  Write to shared onboarding_agents table                             #
+    #  Write to onboarding_agents table                                    #
     # ------------------------------------------------------------------ #
 
+    async def upsert_agent(self, discord_id: int, guild_id: int, **kwargs) -> None:
+        """Create agent if not exists, then update fields."""
+        async with aiosqlite.connect(self._path()) as db:
+            # Create if not exists
+            await db.execute(
+                "INSERT OR IGNORE INTO onboarding_agents (discord_id, guild_id) VALUES (?, ?)",
+                (discord_id, guild_id),
+            )
+            # Update fields
+            if kwargs:
+                set_parts = [f"{k} = ?" for k in kwargs]
+                vals = list(kwargs.values()) + [discord_id]
+                await db.execute(
+                    f"UPDATE onboarding_agents SET {', '.join(set_parts)} WHERE discord_id = ?",
+                    vals,
+                )
+            await db.commit()
+
     async def update_agent(self, discord_id: int, **kwargs) -> None:
-        """Update agent fields in the shared table."""
+        """Update agent fields."""
         if not kwargs:
             return
         set_parts = [f"{k} = ?" for k in kwargs]
@@ -106,7 +156,7 @@ class LicenseDB:
             await db.commit()
 
     # ------------------------------------------------------------------ #
-    #  License check log (owned by this bot)                               #
+    #  License check log                                                   #
     # ------------------------------------------------------------------ #
 
     async def log_check(
@@ -137,13 +187,13 @@ class LicenseDB:
                 return [dict(r) for r in await cursor.fetchall()]
 
     # ------------------------------------------------------------------ #
-    #  Activity log (write to shared table)                                #
+    #  Activity log                                                        #
     # ------------------------------------------------------------------ #
 
     async def log_activity(
         self, discord_id: int, event_type: str, details: str = ""
     ) -> None:
-        """Log to the shared activity log."""
+        """Log to the activity log."""
         async with aiosqlite.connect(self._path()) as db:
             await db.execute(
                 """INSERT INTO agent_activity_log
