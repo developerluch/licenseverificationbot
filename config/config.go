@@ -18,6 +18,14 @@ type Config struct {
 	StudentRoleID         string
 	LicensedAgentRoleID   string
 	LogLevel              string
+
+	// Twilio SMS
+	TwilioAccountSID string
+	TwilioAuthToken  string
+	TwilioFromNumber string
+
+	// Admin notifications
+	AdminNotificationChannelID string
 }
 
 func MustLoad() *Config {
@@ -33,6 +41,12 @@ func MustLoad() *Config {
 		StudentRoleID:         os.Getenv("STUDENT_ROLE_ID"),
 		LicensedAgentRoleID:   os.Getenv("LICENSED_AGENT_ROLE_ID"),
 		LogLevel:              os.Getenv("LOG_LEVEL"),
+
+		TwilioAccountSID: os.Getenv("TWILIO_ACCOUNT_SID"),
+		TwilioAuthToken:  os.Getenv("TWILIO_AUTH_TOKEN"),
+		TwilioFromNumber: os.Getenv("TWILIO_FROM_NUMBER"),
+
+		AdminNotificationChannelID: os.Getenv("ADMIN_NOTIFICATION_CHANNEL_ID"),
 	}
 
 	if cfg.LogLevel == "" {

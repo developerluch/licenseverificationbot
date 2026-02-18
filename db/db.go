@@ -78,6 +78,19 @@ func (d *DB) migrate(ctx context.Context) error {
             created_at TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW()
         )`,
+		`CREATE TABLE IF NOT EXISTS verification_deadlines (
+            discord_id BIGINT PRIMARY KEY,
+            guild_id BIGINT NOT NULL,
+            first_name TEXT,
+            last_name TEXT,
+            home_state TEXT,
+            license_status TEXT DEFAULT 'none',
+            deadline_at TIMESTAMPTZ NOT NULL,
+            auto_verified BOOLEAN DEFAULT FALSE,
+            last_reminder_at TIMESTAMPTZ,
+            admin_notified BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )`,
 	}
 
 	for _, m := range migrations {
@@ -239,6 +252,124 @@ func (d *DB) GetAgent(ctx context.Context, discordID int64) (*Agent, error) {
 		return nil, err
 	}
 	return &a, nil
+}
+
+// VerificationDeadline represents a row in the verification_deadlines table.
+type VerificationDeadline struct {
+	DiscordID     int64
+	GuildID       int64
+	FirstName     string
+	LastName      string
+	HomeState     string
+	LicenseStatus string
+	DeadlineAt    time.Time
+	AutoVerified  bool
+	LastReminder  *time.Time
+	AdminNotified bool
+	CreatedAt     time.Time
+}
+
+func (d *DB) CreateDeadline(ctx context.Context, dl VerificationDeadline) error {
+	_, err := d.pool.ExecContext(ctx,
+		`INSERT INTO verification_deadlines
+         (discord_id, guild_id, first_name, last_name, home_state, license_status, deadline_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (discord_id) DO UPDATE SET
+           guild_id = $2, first_name = $3, last_name = $4, home_state = $5,
+           license_status = $6, deadline_at = $7, auto_verified = FALSE,
+           admin_notified = FALSE`,
+		dl.DiscordID, dl.GuildID, dl.FirstName, dl.LastName,
+		dl.HomeState, dl.LicenseStatus, dl.DeadlineAt,
+	)
+	return err
+}
+
+func (d *DB) MarkDeadlineVerified(ctx context.Context, discordID int64) error {
+	_, err := d.pool.ExecContext(ctx,
+		`UPDATE verification_deadlines SET auto_verified = TRUE, license_status = 'verified'
+         WHERE discord_id = $1`, discordID)
+	return err
+}
+
+func (d *DB) MarkAdminNotified(ctx context.Context, discordID int64) error {
+	_, err := d.pool.ExecContext(ctx,
+		`UPDATE verification_deadlines SET admin_notified = TRUE
+         WHERE discord_id = $1`, discordID)
+	return err
+}
+
+func (d *DB) UpdateReminderSent(ctx context.Context, discordID int64) error {
+	_, err := d.pool.ExecContext(ctx,
+		`UPDATE verification_deadlines SET last_reminder_at = NOW()
+         WHERE discord_id = $1`, discordID)
+	return err
+}
+
+func (d *DB) DeleteDeadline(ctx context.Context, discordID int64) error {
+	_, err := d.pool.ExecContext(ctx,
+		`DELETE FROM verification_deadlines WHERE discord_id = $1`, discordID)
+	return err
+}
+
+// GetPendingDeadlines returns non-verified deadlines that need reminders.
+// It returns deadlines where the last reminder was more than `reminderInterval` ago (or never sent).
+func (d *DB) GetPendingDeadlines(ctx context.Context, reminderInterval time.Duration) ([]VerificationDeadline, error) {
+	rows, err := d.pool.QueryContext(ctx,
+		`SELECT discord_id, guild_id, COALESCE(first_name,''), COALESCE(last_name,''),
+         COALESCE(home_state,''), COALESCE(license_status,'none'), deadline_at,
+         COALESCE(auto_verified, false), last_reminder_at,
+         COALESCE(admin_notified, false), created_at
+         FROM verification_deadlines
+         WHERE auto_verified = FALSE
+           AND deadline_at > NOW()
+           AND (last_reminder_at IS NULL OR last_reminder_at < NOW() - $1::interval)
+         ORDER BY deadline_at ASC`, fmt.Sprintf("%d seconds", int(reminderInterval.Seconds())))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []VerificationDeadline
+	for rows.Next() {
+		var dl VerificationDeadline
+		if err := rows.Scan(&dl.DiscordID, &dl.GuildID, &dl.FirstName, &dl.LastName,
+			&dl.HomeState, &dl.LicenseStatus, &dl.DeadlineAt, &dl.AutoVerified,
+			&dl.LastReminder, &dl.AdminNotified, &dl.CreatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, dl)
+	}
+	return result, rows.Err()
+}
+
+// GetExpiredDeadlines returns deadlines that have passed without verification.
+func (d *DB) GetExpiredDeadlines(ctx context.Context) ([]VerificationDeadline, error) {
+	rows, err := d.pool.QueryContext(ctx,
+		`SELECT discord_id, guild_id, COALESCE(first_name,''), COALESCE(last_name,''),
+         COALESCE(home_state,''), COALESCE(license_status,'none'), deadline_at,
+         COALESCE(auto_verified, false), last_reminder_at,
+         COALESCE(admin_notified, false), created_at
+         FROM verification_deadlines
+         WHERE auto_verified = FALSE
+           AND admin_notified = FALSE
+           AND deadline_at <= NOW()
+         ORDER BY deadline_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []VerificationDeadline
+	for rows.Next() {
+		var dl VerificationDeadline
+		if err := rows.Scan(&dl.DiscordID, &dl.GuildID, &dl.FirstName, &dl.LastName,
+			&dl.HomeState, &dl.LicenseStatus, &dl.DeadlineAt, &dl.AutoVerified,
+			&dl.LastReminder, &dl.AdminNotified, &dl.CreatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, dl)
+	}
+	return result, rows.Err()
 }
 
 // CheckHistoryRow represents a license check history row.
