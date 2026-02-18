@@ -147,9 +147,11 @@ func (b *Bot) sendReminders(ctx context.Context, mailer *email.Client) {
 		}
 
 		msg := fmt.Sprintf(
-			"%sYou have **%d days** left to verify your insurance license.\n\n"+
-				"Use `/verify first_name:YourFirst last_name:YourLast state:XX` in the server.\n"+
-				"Contact your upline if you need help.",
+			"%sYou have **%d days** left to get your insurance license verified.\n\n"+
+				"We're checking state records automatically every day. "+
+				"As soon as your license shows up, you'll be promoted to **Licensed Producer** automatically.\n\n"+
+				"Want to check now? Use `/verify first_name:YourFirst last_name:YourLast state:XX`\n"+
+				"Need help? Contact your upline.",
 			urgency, daysLeft)
 
 		b.dmUser(b.session, userID, msg)
