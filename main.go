@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"license-bot-go/api"
 	"license-bot-go/bot"
 	"license-bot-go/config"
 	"license-bot-go/db"
@@ -34,6 +35,12 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Start API server if configured
+	if cfg.APIToken != "" {
+		apiServer := api.NewServer(cfg, database)
+		go apiServer.Start(ctx)
+	}
 
 	if err := b.Run(ctx); err != nil {
 		log.Fatalf("Bot error: %v", err)

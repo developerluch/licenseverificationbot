@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 	"time"
 
@@ -40,8 +39,16 @@ func (b *Bot) handleVerify(s *discordgo.Session, i *discordgo.InteractionCreate)
 	phone := optMap["phone"]
 
 	userID := i.Member.User.ID
-	userIDInt, _ := strconv.ParseInt(userID, 10, 64)
-	guildIDInt, _ := strconv.ParseInt(i.GuildID, 10, 64)
+	userIDInt, err := parseDiscordID(userID)
+	if err != nil {
+		b.followUp(s, i, "Internal error. Please try again.")
+		return
+	}
+	guildIDInt, err := parseDiscordID(i.GuildID)
+	if err != nil {
+		b.followUp(s, i, "Internal error. Please try again.")
+		return
+	}
 
 	log.Printf("License verify: %s %s (%s) by %s", firstName, lastName, state, userID)
 
@@ -109,7 +116,7 @@ func (b *Bot) handleVerify(s *discordgo.Session, i *discordgo.InteractionCreate)
 	if match != nil {
 		// SUCCESS
 		verified := true
-		stage := "verified"
+		stage := db.StageVerified
 		b.db.UpsertAgent(context.Background(), userIDInt, guildIDInt, db.AgentUpdate{
 			FirstName:       &firstName,
 			LastName:        &lastName,
@@ -420,7 +427,7 @@ func (b *Bot) performVerification(ctx context.Context, firstName, lastName, stat
 	if match != nil {
 		// Save to DB
 		verified := true
-		stage := "verified"
+		stage := db.StageVerified
 		b.db.UpsertAgent(ctx, discordID, guildID, db.AgentUpdate{
 			FirstName:       &firstName,
 			LastName:        &lastName,

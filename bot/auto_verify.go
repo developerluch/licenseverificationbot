@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strconv"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -24,6 +23,12 @@ func (b *Bot) handleMemberUpdate(s *discordgo.Session, e *discordgo.GuildMemberU
 
 	if e.BeforeUpdate == nil {
 		return // Can't compare without before state
+	}
+
+	// Check if rules screening was completed (pending -> not pending)
+	if e.BeforeUpdate.Pending && !e.Pending {
+		go b.handleRulesScreeningComplete(s, e.Member)
+		return
 	}
 
 	newRoles := roleSet(e.Roles)
@@ -56,8 +61,16 @@ func (b *Bot) onLicensedRoleAdded(s *discordgo.Session, e *discordgo.GuildMember
 	}()
 
 	userID := e.User.ID
-	userIDInt, _ := strconv.ParseInt(userID, 10, 64)
-	guildIDInt, _ := strconv.ParseInt(e.GuildID, 10, 64)
+	userIDInt, err := parseDiscordID(userID)
+	if err != nil {
+		log.Printf("onLicensedRoleAdded: %v", err)
+		return
+	}
+	guildIDInt, err := parseDiscordID(e.GuildID)
+	if err != nil {
+		log.Printf("onLicensedRoleAdded: %v", err)
+		return
+	}
 
 	log.Printf("Auto-verify: Licensed role added for %s (%s)", e.User.Username, userID)
 
@@ -71,21 +84,13 @@ func (b *Bot) onLicensedRoleAdded(s *discordgo.Session, e *discordgo.GuildMember
 		state = agent.State
 		log.Printf("Auto-verify: Found agent in local DB: %s %s (%s)", firstName, lastName, state)
 	} else {
-		// Fallback: try the Python onboarding bot's API
-		log.Printf("Auto-verify: No local record for %s, trying onboarding bridge...", userID)
-		fn, ln, st, ok := b.syncFromOnboarding(context.Background(), userID, guildIDInt)
-		if !ok {
-			log.Printf("Auto-verify: No data from onboarding bridge for %s either", userID)
-			b.dmUser(s, userID,
-				"Welcome! We see you're a licensed agent. "+
-					"Please use `/verify first_name:YourFirst last_name:YourLast state:XX` "+
-					"to verify your license and get access to agent channels.")
-			return
-		}
-		firstName = fn
-		lastName = ln
-		state = st
-		log.Printf("Auto-verify: Got data from onboarding bridge: %s %s (%s)", firstName, lastName, state)
+		// No local data — ask user to verify manually
+		log.Printf("Auto-verify: No local record for %s, asking to verify manually", userID)
+		b.dmUser(s, userID,
+			"Welcome! We see you're a licensed agent. "+
+				"Please use `/verify first_name:YourFirst last_name:YourLast state:XX` "+
+				"to verify your license and get access to agent channels.")
+		return
 	}
 
 	if firstName == "" || state == "" {
@@ -145,25 +150,26 @@ func (b *Bot) onStudentRoleAdded(s *discordgo.Session, e *discordgo.GuildMemberU
 	}()
 
 	userID := e.User.ID
-	userIDInt, _ := strconv.ParseInt(userID, 10, 64)
-	guildIDInt, _ := strconv.ParseInt(e.GuildID, 10, 64)
+	userIDInt, err := parseDiscordID(userID)
+	if err != nil {
+		log.Printf("onStudentRoleAdded: %v", err)
+		return
+	}
+	guildIDInt, err := parseDiscordID(e.GuildID)
+	if err != nil {
+		log.Printf("onStudentRoleAdded: %v", err)
+		return
+	}
 
 	log.Printf("Auto-verify: Student role added for %s (%s)", e.User.Username, userID)
 
-	// Look up agent info from local DB, then onboarding bridge
+	// Look up agent info from local DB
 	var firstName, lastName, state string
 	agent, err := b.db.GetAgent(context.Background(), userIDInt)
 	if err == nil && agent != nil && agent.FirstName != "" {
 		firstName = agent.FirstName
 		lastName = agent.LastName
 		state = agent.State
-	} else {
-		fn, ln, st, ok := b.syncFromOnboarding(context.Background(), userID, guildIDInt)
-		if ok {
-			firstName = fn
-			lastName = ln
-			state = st
-		}
 	}
 	if firstName == "" {
 		firstName = e.User.Username

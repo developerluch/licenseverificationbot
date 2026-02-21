@@ -3,7 +3,6 @@ package bot
 import (
 	"context"
 	"log"
-	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -36,8 +35,16 @@ func (b *Bot) handleEmailOptIn(s *discordgo.Session, i *discordgo.InteractionCre
 		return
 	}
 
-	userIDInt, _ := strconv.ParseInt(i.Member.User.ID, 10, 64)
-	guildIDInt, _ := strconv.ParseInt(i.GuildID, 10, 64)
+	userIDInt, err := parseDiscordID(i.Member.User.ID)
+	if err != nil {
+		b.followUp(s, i, "Internal error. Please try again.")
+		return
+	}
+	guildIDInt, err := parseDiscordID(i.GuildID)
+	if err != nil {
+		b.followUp(s, i, "Internal error. Please try again.")
+		return
+	}
 
 	optIn := true
 	b.db.UpsertAgent(context.Background(), userIDInt, guildIDInt, db.AgentUpdate{
@@ -64,8 +71,16 @@ func (b *Bot) handleEmailOptOut(s *discordgo.Session, i *discordgo.InteractionCr
 		return
 	}
 
-	userIDInt, _ := strconv.ParseInt(i.Member.User.ID, 10, 64)
-	guildIDInt, _ := strconv.ParseInt(i.GuildID, 10, 64)
+	userIDInt, err := parseDiscordID(i.Member.User.ID)
+	if err != nil {
+		b.followUp(s, i, "Internal error. Please try again.")
+		return
+	}
+	guildIDInt, err := parseDiscordID(i.GuildID)
+	if err != nil {
+		b.followUp(s, i, "Internal error. Please try again.")
+		return
+	}
 
 	optOut := false
 	b.db.UpsertAgent(context.Background(), userIDInt, guildIDInt, db.AgentUpdate{

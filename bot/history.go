@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -24,7 +23,11 @@ func (b *Bot) handleHistory(s *discordgo.Session, i *discordgo.InteractionCreate
 	}
 
 	userID := i.Member.User.ID
-	userIDInt, _ := strconv.ParseInt(userID, 10, 64)
+	userIDInt, err := parseDiscordID(userID)
+	if err != nil {
+		b.followUp(s, i, "Internal error. Please try again.")
+		return
+	}
 
 	checks, err := b.db.GetCheckHistory(context.Background(), userIDInt, 5)
 	if err != nil {

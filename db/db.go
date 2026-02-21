@@ -11,6 +11,30 @@ import (
 	"license-bot-go/config"
 )
 
+// Stage constants for the 8-stage onboarding pipeline.
+const (
+	StageWelcome     = 1
+	StageFormStart   = 2
+	StageSorted      = 3
+	StageStudent     = 4
+	StageVerified    = 5
+	StageContracting = 6
+	StageSetup       = 7
+	StageActive      = 8
+)
+
+// StageMap maps legacy text stage values to integer stages.
+var StageMap = map[string]int{
+	"welcome":     StageWelcome,
+	"form_start":  StageFormStart,
+	"sorted":      StageSorted,
+	"student":     StageStudent,
+	"verified":    StageVerified,
+	"contracting": StageContracting,
+	"setup":       StageSetup,
+	"active":      StageActive,
+}
+
 type DB struct {
 	pool *sql.DB
 }
@@ -97,6 +121,90 @@ func (d *DB) migrate(ctx context.Context) error {
             admin_notified BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMPTZ DEFAULT NOW()
         )`,
+
+		// Migration: convert current_stage from TEXT to INTEGER
+		`DO $$ BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name='onboarding_agents' AND column_name='current_stage' AND data_type='text'
+            ) THEN
+                ALTER TABLE onboarding_agents ADD COLUMN current_stage_int INTEGER DEFAULT 1;
+                UPDATE onboarding_agents SET current_stage_int = CASE
+                    WHEN current_stage='welcome' THEN 1
+                    WHEN current_stage='form_start' THEN 2
+                    WHEN current_stage='sorted' THEN 3
+                    WHEN current_stage='student' THEN 4
+                    WHEN current_stage='verified' THEN 5
+                    WHEN current_stage='contracting' THEN 6
+                    WHEN current_stage='setup' THEN 7
+                    WHEN current_stage='active' THEN 8
+                    ELSE 1 END;
+                ALTER TABLE onboarding_agents DROP COLUMN current_stage;
+                ALTER TABLE onboarding_agents RENAME COLUMN current_stage_int TO current_stage;
+            END IF;
+        END $$`,
+
+		// New columns on onboarding_agents for onboarding pipeline
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS agency TEXT`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS upline_manager TEXT`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS experience_level TEXT`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS license_status TEXT DEFAULT 'none'`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS production_written TEXT`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS lead_source TEXT`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS vision_goals TEXT`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS comp_pct TEXT`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS show_comp BOOLEAN DEFAULT FALSE`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS role_background TEXT`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS fun_hobbies TEXT`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS notification_pref TEXT DEFAULT 'discord'`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS contracting_booked BOOLEAN DEFAULT FALSE`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS contracting_completed BOOLEAN DEFAULT FALSE`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS setup_completed BOOLEAN DEFAULT FALSE`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS form_completed_at TIMESTAMPTZ`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS sorted_at TIMESTAMPTZ`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS activated_at TIMESTAMPTZ`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS kicked_at TIMESTAMPTZ`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS kicked_reason TEXT`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS last_active TIMESTAMPTZ DEFAULT NOW()`,
+
+		// New tables for onboarding pipeline
+		`CREATE TABLE IF NOT EXISTS agent_activity_log (
+            id SERIAL PRIMARY KEY,
+            discord_id BIGINT NOT NULL,
+            event_type TEXT NOT NULL,
+            details TEXT,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )`,
+		`CREATE INDEX IF NOT EXISTS idx_activity_discord ON agent_activity_log(discord_id)`,
+
+		`CREATE TABLE IF NOT EXISTS agent_weekly_checkins (
+            id SERIAL PRIMARY KEY,
+            discord_id BIGINT NOT NULL,
+            week_start DATE NOT NULL,
+            sent_at TIMESTAMPTZ,
+            response TEXT,
+            responded_at TIMESTAMPTZ,
+            UNIQUE(discord_id, week_start)
+        )`,
+
+		`CREATE TABLE IF NOT EXISTS contracting_managers (
+            id SERIAL PRIMARY KEY,
+            manager_name TEXT NOT NULL,
+            discord_user_id BIGINT,
+            calendly_url TEXT NOT NULL,
+            priority INTEGER DEFAULT 1,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )`,
+
+		`CREATE TABLE IF NOT EXISTS agent_setup_progress (
+            id SERIAL PRIMARY KEY,
+            discord_id BIGINT NOT NULL,
+            item_key TEXT NOT NULL,
+            completed BOOLEAN DEFAULT FALSE,
+            completed_at TIMESTAMPTZ,
+            UNIQUE(discord_id, item_key)
+        )`,
 	}
 
 	for _, m := range migrations {
@@ -147,7 +255,30 @@ type AgentUpdate struct {
 	State           *string
 	LicenseVerified *bool
 	LicenseNPN      *string
-	CurrentStage    *string
+	CurrentStage    *int
+
+	// Onboarding fields
+	Agency               *string
+	UplineManager        *string
+	ExperienceLevel      *string
+	LicenseStatus        *string
+	ProductionWritten    *string
+	LeadSource           *string
+	VisionGoals          *string
+	CompPct              *string
+	ShowComp             *bool
+	RoleBackground       *string
+	FunHobbies           *string
+	NotificationPref     *string
+	ContractingBooked    *bool
+	ContractingCompleted *bool
+	SetupCompleted       *bool
+	FormCompletedAt      *time.Time
+	SortedAt             *time.Time
+	ActivatedAt          *time.Time
+	KickedAt             *time.Time
+	KickedReason         *string
+	LastActive           *time.Time
 }
 
 func (d *DB) UpsertAgent(ctx context.Context, discordID, guildID int64, updates AgentUpdate) error {
@@ -212,6 +343,111 @@ func (d *DB) UpsertAgent(ctx context.Context, discordID, guildID int64, updates 
 		args = append(args, *updates.CurrentStage)
 		argN++
 	}
+	if updates.Agency != nil {
+		sets = append(sets, fmt.Sprintf("agency = $%d", argN))
+		args = append(args, *updates.Agency)
+		argN++
+	}
+	if updates.UplineManager != nil {
+		sets = append(sets, fmt.Sprintf("upline_manager = $%d", argN))
+		args = append(args, *updates.UplineManager)
+		argN++
+	}
+	if updates.ExperienceLevel != nil {
+		sets = append(sets, fmt.Sprintf("experience_level = $%d", argN))
+		args = append(args, *updates.ExperienceLevel)
+		argN++
+	}
+	if updates.LicenseStatus != nil {
+		sets = append(sets, fmt.Sprintf("license_status = $%d", argN))
+		args = append(args, *updates.LicenseStatus)
+		argN++
+	}
+	if updates.ProductionWritten != nil {
+		sets = append(sets, fmt.Sprintf("production_written = $%d", argN))
+		args = append(args, *updates.ProductionWritten)
+		argN++
+	}
+	if updates.LeadSource != nil {
+		sets = append(sets, fmt.Sprintf("lead_source = $%d", argN))
+		args = append(args, *updates.LeadSource)
+		argN++
+	}
+	if updates.VisionGoals != nil {
+		sets = append(sets, fmt.Sprintf("vision_goals = $%d", argN))
+		args = append(args, *updates.VisionGoals)
+		argN++
+	}
+	if updates.CompPct != nil {
+		sets = append(sets, fmt.Sprintf("comp_pct = $%d", argN))
+		args = append(args, *updates.CompPct)
+		argN++
+	}
+	if updates.ShowComp != nil {
+		sets = append(sets, fmt.Sprintf("show_comp = $%d", argN))
+		args = append(args, *updates.ShowComp)
+		argN++
+	}
+	if updates.RoleBackground != nil {
+		sets = append(sets, fmt.Sprintf("role_background = $%d", argN))
+		args = append(args, *updates.RoleBackground)
+		argN++
+	}
+	if updates.FunHobbies != nil {
+		sets = append(sets, fmt.Sprintf("fun_hobbies = $%d", argN))
+		args = append(args, *updates.FunHobbies)
+		argN++
+	}
+	if updates.NotificationPref != nil {
+		sets = append(sets, fmt.Sprintf("notification_pref = $%d", argN))
+		args = append(args, *updates.NotificationPref)
+		argN++
+	}
+	if updates.ContractingBooked != nil {
+		sets = append(sets, fmt.Sprintf("contracting_booked = $%d", argN))
+		args = append(args, *updates.ContractingBooked)
+		argN++
+	}
+	if updates.ContractingCompleted != nil {
+		sets = append(sets, fmt.Sprintf("contracting_completed = $%d", argN))
+		args = append(args, *updates.ContractingCompleted)
+		argN++
+	}
+	if updates.SetupCompleted != nil {
+		sets = append(sets, fmt.Sprintf("setup_completed = $%d", argN))
+		args = append(args, *updates.SetupCompleted)
+		argN++
+	}
+	if updates.FormCompletedAt != nil {
+		sets = append(sets, fmt.Sprintf("form_completed_at = $%d", argN))
+		args = append(args, *updates.FormCompletedAt)
+		argN++
+	}
+	if updates.SortedAt != nil {
+		sets = append(sets, fmt.Sprintf("sorted_at = $%d", argN))
+		args = append(args, *updates.SortedAt)
+		argN++
+	}
+	if updates.ActivatedAt != nil {
+		sets = append(sets, fmt.Sprintf("activated_at = $%d", argN))
+		args = append(args, *updates.ActivatedAt)
+		argN++
+	}
+	if updates.KickedAt != nil {
+		sets = append(sets, fmt.Sprintf("kicked_at = $%d", argN))
+		args = append(args, *updates.KickedAt)
+		argN++
+	}
+	if updates.KickedReason != nil {
+		sets = append(sets, fmt.Sprintf("kicked_reason = $%d", argN))
+		args = append(args, *updates.KickedReason)
+		argN++
+	}
+	if updates.LastActive != nil {
+		sets = append(sets, fmt.Sprintf("last_active = $%d", argN))
+		args = append(args, *updates.LastActive)
+		argN++
+	}
 
 	if len(args) == 0 {
 		return nil // Nothing to update beyond updated_at
@@ -248,7 +484,32 @@ type Agent struct {
 	State           string
 	LicenseVerified bool
 	LicenseNPN      string
-	CurrentStage    string
+	CurrentStage    int
+
+	// Onboarding fields
+	Agency               string
+	UplineManager        string
+	ExperienceLevel      string
+	LicenseStatus        string
+	ProductionWritten    string
+	LeadSource           string
+	VisionGoals          string
+	CompPct              string
+	ShowComp             bool
+	RoleBackground       string
+	FunHobbies           string
+	NotificationPref     string
+	ContractingBooked    bool
+	ContractingCompleted bool
+	SetupCompleted       bool
+	FormCompletedAt      *time.Time
+	SortedAt             *time.Time
+	ActivatedAt          *time.Time
+	KickedAt             *time.Time
+	KickedReason         string
+	LastActive           *time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 func (d *DB) GetAgent(ctx context.Context, discordID int64) (*Agent, error) {
@@ -259,11 +520,35 @@ func (d *DB) GetAgent(ctx context.Context, discordID int64) (*Agent, error) {
          COALESCE(phone_number, ''), COALESCE(email, ''),
          COALESCE(email_opt_in, false),
          COALESCE(state, ''), COALESCE(license_verified, false),
-         COALESCE(license_npn, ''), COALESCE(current_stage, 'welcome')
+         COALESCE(license_npn, ''), COALESCE(current_stage, 1),
+         COALESCE(agency, ''), COALESCE(upline_manager, ''),
+         COALESCE(experience_level, ''), COALESCE(license_status, 'none'),
+         COALESCE(production_written, ''), COALESCE(lead_source, ''),
+         COALESCE(vision_goals, ''), COALESCE(comp_pct, ''),
+         COALESCE(show_comp, false),
+         COALESCE(role_background, ''), COALESCE(fun_hobbies, ''),
+         COALESCE(notification_pref, 'discord'),
+         COALESCE(contracting_booked, false), COALESCE(contracting_completed, false),
+         COALESCE(setup_completed, false),
+         form_completed_at, sorted_at, activated_at, kicked_at,
+         COALESCE(kicked_reason, ''),
+         last_active, created_at, updated_at
          FROM onboarding_agents WHERE discord_id = $1`, discordID,
 	).Scan(&a.DiscordID, &a.GuildID, &a.FirstName, &a.LastName,
 		&a.PhoneNumber, &a.Email, &a.EmailOptIn, &a.State, &a.LicenseVerified,
-		&a.LicenseNPN, &a.CurrentStage)
+		&a.LicenseNPN, &a.CurrentStage,
+		&a.Agency, &a.UplineManager,
+		&a.ExperienceLevel, &a.LicenseStatus,
+		&a.ProductionWritten, &a.LeadSource,
+		&a.VisionGoals, &a.CompPct,
+		&a.ShowComp,
+		&a.RoleBackground, &a.FunHobbies,
+		&a.NotificationPref,
+		&a.ContractingBooked, &a.ContractingCompleted,
+		&a.SetupCompleted,
+		&a.FormCompletedAt, &a.SortedAt, &a.ActivatedAt, &a.KickedAt,
+		&a.KickedReason,
+		&a.LastActive, &a.CreatedAt, &a.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -334,6 +619,7 @@ func (d *DB) DeleteDeadline(ctx context.Context, discordID int64) error {
 // GetPendingDeadlines returns non-verified deadlines that need reminders.
 // It returns deadlines where the last reminder was more than `reminderInterval` ago (or never sent).
 func (d *DB) GetPendingDeadlines(ctx context.Context, reminderInterval time.Duration) ([]VerificationDeadline, error) {
+	cutoff := time.Now().Add(-reminderInterval)
 	rows, err := d.pool.QueryContext(ctx,
 		`SELECT discord_id, guild_id, COALESCE(first_name,''), COALESCE(last_name,''),
          COALESCE(home_state,''), COALESCE(license_status,'none'), deadline_at,
@@ -342,8 +628,8 @@ func (d *DB) GetPendingDeadlines(ctx context.Context, reminderInterval time.Dura
          FROM verification_deadlines
          WHERE auto_verified = FALSE
            AND deadline_at > NOW()
-           AND (last_reminder_at IS NULL OR last_reminder_at < NOW() - $1::interval)
-         ORDER BY deadline_at ASC`, fmt.Sprintf("%d seconds", int(reminderInterval.Seconds())))
+           AND (last_reminder_at IS NULL OR last_reminder_at < $1)
+         ORDER BY deadline_at ASC`, cutoff)
 	if err != nil {
 		return nil, err
 	}

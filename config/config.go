@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -20,16 +21,39 @@ type Config struct {
 	LogLevel              string
 
 	// Resend Email
-	ResendAPIKey string
-	EmailFrom    string
+	ResendAPIKey  string
+	EmailFrom     string
 	EmailFromName string
 
 	// Admin notifications
 	AdminNotificationChannelID string
 
-	// Onboarding bot bridge
-	OnboardingAPIURL   string
-	OnboardingAPIToken string
+	// Onboarding channels
+	StartHereChannelID string
+	GreetingsChannelID string
+	RulesChannelID     string
+	NewAgentChannelID  string
+
+	// Onboarding roles
+	ActiveAgentRoleID string
+
+	// Agency roles
+	TFCRoleID        string
+	RadiantRoleID    string
+	GBURoleID        string
+	UnassignedRoleID string
+
+	// Staff roles (comma-separated)
+	StaffRoleIDs string
+
+	// Scheduler config
+	InactivityKickWeeks int
+	CheckinDay          int // 0=Sunday, 1=Monday, ..., 6=Saturday
+	CheckinHour         int // Hour in ET (0-23)
+
+	// API Server
+	APIToken string
+	APIPort  string
 }
 
 func MustLoad() *Config {
@@ -46,19 +70,39 @@ func MustLoad() *Config {
 		LicensedAgentRoleID:   os.Getenv("LICENSED_AGENT_ROLE_ID"),
 		LogLevel:              os.Getenv("LOG_LEVEL"),
 
-		ResendAPIKey: os.Getenv("RESEND_API_KEY"),
-		EmailFrom:    os.Getenv("EMAIL_FROM"),
+		ResendAPIKey:  os.Getenv("RESEND_API_KEY"),
+		EmailFrom:     os.Getenv("EMAIL_FROM"),
 		EmailFromName: os.Getenv("EMAIL_FROM_NAME"),
 
 		AdminNotificationChannelID: os.Getenv("ADMIN_NOTIFICATION_CHANNEL_ID"),
 
-		OnboardingAPIURL:   os.Getenv("ONBOARDING_API_URL"),
-		OnboardingAPIToken: os.Getenv("ONBOARDING_API_TOKEN"),
+		StartHereChannelID: os.Getenv("START_HERE_CHANNEL_ID"),
+		GreetingsChannelID: os.Getenv("GREETINGS_CHANNEL_ID"),
+		RulesChannelID:     os.Getenv("RULES_CHANNEL_ID"),
+		NewAgentChannelID:  os.Getenv("NEW_AGENT_CHANNEL_ID"),
+
+		ActiveAgentRoleID: os.Getenv("ACTIVE_AGENT_ROLE_ID"),
+		TFCRoleID:         os.Getenv("TFC_ROLE_ID"),
+		RadiantRoleID:     os.Getenv("RADIANT_ROLE_ID"),
+		GBURoleID:         os.Getenv("GBU_ROLE_ID"),
+		UnassignedRoleID:  os.Getenv("UNASSIGNED_ROLE_ID"),
+
+		StaffRoleIDs: os.Getenv("STAFF_ROLE_IDS"),
+
+		APIToken: os.Getenv("API_TOKEN"),
+		APIPort:  os.Getenv("API_PORT"),
 	}
 
 	if cfg.LogLevel == "" {
 		cfg.LogLevel = "INFO"
 	}
+	if cfg.APIPort == "" {
+		cfg.APIPort = "8080"
+	}
+
+	cfg.InactivityKickWeeks = getEnvInt("INACTIVITY_KICK_WEEKS", 4)
+	cfg.CheckinDay = getEnvInt("CHECKIN_DAY", 1) // 1 = Monday
+	cfg.CheckinHour = getEnvInt("CHECKIN_HOUR", 9)
 
 	// Validate required
 	if cfg.DiscordToken == "" {
@@ -78,4 +122,59 @@ func MustLoad() *Config {
 func (c *Config) GuildIDInt() int64 {
 	v, _ := strconv.ParseInt(c.GuildID, 10, 64)
 	return v
+}
+
+// StaffRoleIDList returns the staff role IDs as a slice.
+func (c *Config) StaffRoleIDList() []string {
+	if c.StaffRoleIDs == "" {
+		return nil
+	}
+	parts := strings.Split(c.StaffRoleIDs, ",")
+	var result []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+// IsStaff returns true if any of the given role IDs match a staff role.
+func (c *Config) IsStaff(memberRoles []string) bool {
+	staffIDs := c.StaffRoleIDList()
+	for _, roleID := range memberRoles {
+		for _, staffID := range staffIDs {
+			if roleID == staffID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// GetAgencyRoleID returns the Discord role ID for the given agency name.
+func (c *Config) GetAgencyRoleID(agency string) string {
+	switch strings.ToLower(strings.TrimSpace(agency)) {
+	case "tfc", "topfloorclosers", "top floor closers":
+		return c.TFCRoleID
+	case "radiant", "radiant financial":
+		return c.RadiantRoleID
+	case "gbu":
+		return c.GBURoleID
+	default:
+		return c.UnassignedRoleID
+	}
+}
+
+func getEnvInt(key string, defaultVal int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return defaultVal
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return defaultVal
+	}
+	return n
 }

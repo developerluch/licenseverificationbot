@@ -57,6 +57,16 @@ func (b *Bot) runSchedulerCycle(mailer *email.Client) {
 
 	// 3. Handle expired deadlines — notify admin
 	b.handleExpiredDeadlines(ctx, mailer)
+
+	// 4. Weekly check-ins (only on configured day)
+	loc, _ := time.LoadLocation("America/New_York")
+	nowET := time.Now().In(loc)
+	if int(nowET.Weekday()) == b.cfg.CheckinDay {
+		b.sendWeeklyCheckins(ctx)
+	}
+
+	// 5. Inactivity check (daily)
+	b.checkInactivity(ctx)
 }
 
 // retryVerifications attempts auto-verify for all pending deadlines.
