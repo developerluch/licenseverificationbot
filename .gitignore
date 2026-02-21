@@ -13,3 +13,5 @@ Thumbs.db
 # Go
 vendor/
 railway-env-vars.txt
+bot/license-bot-go
+.claude/

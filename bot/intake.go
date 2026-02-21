@@ -109,12 +109,56 @@ func (b *Bot) handleStep1Submit(s *discordgo.Session, i *discordgo.InteractionCr
 		b.db.LogActivity(context.Background(), userIDInt, "form_step1", fmt.Sprintf("Name: %s, Agency: %s", fullName, agency))
 	}
 
-	// Send ephemeral confirmation with "Continue" button
+	// Send ephemeral confirmation
 	expLabel := experienceLevel
 	if expLabel == "" {
 		expLabel = "Not specified"
 	}
 
+	// If NOT licensed, ask about course enrollment before continuing
+	if licenseStatus != "licensed" {
+		embed := &discordgo.MessageEmbed{
+			Title: "\u2705 Step 1 Complete!",
+			Description: fmt.Sprintf(
+				"**Name:** %s\n**Agency:** %s\n**License:** %s\n**Experience:** %s\n\n"+
+					"\U0001f393 **Are you currently enrolled in a pre-licensing course?**",
+				fullName, agency, licenseStatus, expLabel),
+			Color: 0xF39C12,
+			Footer: &discordgo.MessageEmbedFooter{
+				Text: "VIPA Onboarding \u2022 Course enrollment helps us set you up correctly",
+			},
+		}
+
+		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Embeds: []*discordgo.MessageEmbed{embed},
+				Flags:  discordgo.MessageFlagsEphemeral,
+				Components: []discordgo.MessageComponent{
+					discordgo.ActionsRow{
+						Components: []discordgo.MessageComponent{
+							discordgo.Button{
+								Label:    "\u2705 Yes, I'm enrolled",
+								Style:    discordgo.SuccessButton,
+								CustomID: "vipa:course_enrolled_yes",
+							},
+							discordgo.Button{
+								Label:    "\u274c No, not yet",
+								Style:    discordgo.DangerButton,
+								CustomID: "vipa:course_enrolled_no",
+							},
+						},
+					},
+				},
+			},
+		})
+		if err != nil {
+			log.Printf("Intake: failed to show course enrollment question: %v", err)
+		}
+		return
+	}
+
+	// Licensed agents skip straight to Continue
 	embed := &discordgo.MessageEmbed{
 		Title: "\u2705 Step 1 Complete!",
 		Description: fmt.Sprintf(
@@ -148,6 +192,101 @@ func (b *Bot) handleStep1Submit(s *discordgo.Session, i *discordgo.InteractionCr
 	if err != nil {
 		log.Printf("Intake: failed to respond to Step 1: %v", err)
 	}
+}
+
+// handleCourseEnrolledYes handles the "Yes, I'm enrolled" button for unlicensed agents.
+func (b *Bot) handleCourseEnrolledYes(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	userID := ""
+	if i.Member != nil {
+		userID = i.Member.User.ID
+	} else if i.User != nil {
+		userID = i.User.ID
+	}
+
+	// Update temp data with course enrollment
+	if val, ok := b.modalState.Load(userID); ok {
+		if data, ok := val.(*ModalTempData); ok {
+			data.CourseEnrolled = true
+		}
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "\U0001f393 Course Enrollment Confirmed!",
+		Description: "Great \u2014 you're on the right track! You'll get access to all training resources.\n\nClick **Continue** below to introduce yourself to the team!",
+		Color:       0x2ECC71,
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "VIPA Onboarding \u2022 Step 2 is a quick intro \u2014 takes 30 seconds!",
+		},
+	}
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+			Flags:  discordgo.MessageFlagsEphemeral,
+			Components: []discordgo.MessageComponent{
+				discordgo.ActionsRow{
+					Components: []discordgo.MessageComponent{
+						discordgo.Button{
+							Label:    "Continue \u2192 Introduce Yourself",
+							Style:    discordgo.PrimaryButton,
+							CustomID: "vipa:step2_continue",
+						},
+					},
+				},
+			},
+		},
+	})
+}
+
+// handleCourseEnrolledNo handles the "No, not yet" button for unlicensed agents.
+func (b *Bot) handleCourseEnrolledNo(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	userID := ""
+	if i.Member != nil {
+		userID = i.Member.User.ID
+	} else if i.User != nil {
+		userID = i.User.ID
+	}
+
+	// Update temp data — not enrolled
+	if val, ok := b.modalState.Load(userID); ok {
+		if data, ok := val.(*ModalTempData); ok {
+			data.CourseEnrolled = false
+		}
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "\U0001f4d6 Get Enrolled in Your Pre-License Course",
+		Description: "Before you can access training resources, you'll need to enroll in a pre-licensing course.\n\n**Book a call with Isabel** to get onboarded and set up with your training:\n\n\U0001f449 **[Schedule Enrollment Call](https://link.msgsndr.com/widget/bookings/illuminate-enrollment)**\n\nYou can still continue with onboarding below \u2014 once you're enrolled, you'll get full training access!",
+		Color:       0xE74C3C,
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "VIPA Onboarding \u2022 Book your enrollment call, then continue below",
+		},
+	}
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+			Flags:  discordgo.MessageFlagsEphemeral,
+			Components: []discordgo.MessageComponent{
+				discordgo.ActionsRow{
+					Components: []discordgo.MessageComponent{
+						discordgo.Button{
+							Label:    "Continue \u2192 Introduce Yourself",
+							Style:    discordgo.PrimaryButton,
+							CustomID: "vipa:step2_continue",
+						},
+						discordgo.Button{
+							Label:    "\U0001f4c5 Book Enrollment Call",
+							Style:    discordgo.LinkButton,
+							URL:      "https://link.msgsndr.com/widget/bookings/illuminate-enrollment",
+						},
+					},
+				},
+			},
+		},
+	})
 }
 
 // handleStep2Continue opens the Step 2 modal.
@@ -293,6 +432,7 @@ func (b *Bot) handleStep2Submit(s *discordgo.Session, i *discordgo.InteractionCr
 	now := time.Now()
 
 	// Save to DB
+	courseEnrolled := step1.CourseEnrolled
 	b.db.UpsertAgent(context.Background(), userIDInt, guildIDInt, db.AgentUpdate{
 		FirstName:       &firstName,
 		LastName:        &lastName,
@@ -302,6 +442,7 @@ func (b *Bot) handleStep2Submit(s *discordgo.Session, i *discordgo.InteractionCr
 		UplineManager:   &step1.UplineManager,
 		ExperienceLevel: &step1.ExperienceLevel,
 		LicenseStatus:   &step1.LicenseStatus,
+		CourseEnrolled:  &courseEnrolled,
 		RoleBackground:  &roleBackground,
 		VisionGoals:     &goalsVision,
 		FunHobbies:      &funHobbies,
@@ -312,7 +453,7 @@ func (b *Bot) handleStep2Submit(s *discordgo.Session, i *discordgo.InteractionCr
 	})
 
 	b.db.LogActivity(context.Background(), userIDInt, "form_complete",
-		fmt.Sprintf("Agency: %s, License: %s, State: %s", step1.Agency, step1.LicenseStatus, homeState))
+		fmt.Sprintf("Agency: %s, License: %s, Enrolled: %v, State: %s", step1.Agency, step1.LicenseStatus, courseEnrolled, homeState))
 
 	// Assign roles
 	go b.sortAndAssignRoles(s, userID, i.GuildID, step1.Agency, step1.LicenseStatus)
@@ -358,7 +499,14 @@ func (b *Bot) handleStep2Submit(s *discordgo.Session, i *discordgo.InteractionCr
 			log.Printf("handleStep2Submit: followup failed: %v", followErr)
 		}
 	} else {
-		responseMsg += "\n\nOnce you pass your exam, use `/verify` to verify your license."
+		if courseEnrolled {
+			responseMsg += "\n\n\U0001f393 You're enrolled in your pre-licensing course \u2014 you have access to all training resources!"
+			responseMsg += "\nOnce you pass your exam, use `/verify` to verify your license."
+		} else {
+			responseMsg += "\n\n\U0001f4d6 **Don't forget to enroll in your pre-licensing course!**"
+			responseMsg += "\n\U0001f449 [Book your enrollment call with Isabel](https://link.msgsndr.com/widget/bookings/illuminate-enrollment)"
+			responseMsg += "\nOnce enrolled and licensed, use `/verify` to verify your license."
+		}
 		b.followUp(s, i, responseMsg)
 	}
 }

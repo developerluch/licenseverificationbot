@@ -26,6 +26,7 @@ type ModalTempData struct {
 	UplineManager   string
 	ExperienceLevel string
 	LicenseStatus   string
+	CourseEnrolled  bool
 	ExpiresAt       time.Time
 }
 
@@ -146,6 +147,10 @@ func (b *Bot) handleComponent(s *discordgo.Session, i *discordgo.InteractionCrea
 	// Onboarding buttons
 	case customID == "vipa:onboarding_get_started":
 		b.handleGetStarted(s, i)
+	case customID == "vipa:course_enrolled_yes":
+		b.handleCourseEnrolledYes(s, i)
+	case customID == "vipa:course_enrolled_no":
+		b.handleCourseEnrolledNo(s, i)
 	case customID == "vipa:step2_continue":
 		b.handleStep2Continue(s, i)
 	case customID == "vipa:step2b_continue":

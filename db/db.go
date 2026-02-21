@@ -166,6 +166,7 @@ func (d *DB) migrate(ctx context.Context) error {
 		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS kicked_at TIMESTAMPTZ`,
 		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS kicked_reason TEXT`,
 		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS last_active TIMESTAMPTZ DEFAULT NOW()`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS course_enrolled BOOLEAN DEFAULT FALSE`,
 
 		// New tables for onboarding pipeline
 		`CREATE TABLE IF NOT EXISTS agent_activity_log (
@@ -270,6 +271,7 @@ type AgentUpdate struct {
 	RoleBackground       *string
 	FunHobbies           *string
 	NotificationPref     *string
+	CourseEnrolled       *bool
 	ContractingBooked    *bool
 	ContractingCompleted *bool
 	SetupCompleted       *bool
@@ -403,6 +405,11 @@ func (d *DB) UpsertAgent(ctx context.Context, discordID, guildID int64, updates 
 		args = append(args, *updates.NotificationPref)
 		argN++
 	}
+	if updates.CourseEnrolled != nil {
+		sets = append(sets, fmt.Sprintf("course_enrolled = $%d", argN))
+		args = append(args, *updates.CourseEnrolled)
+		argN++
+	}
 	if updates.ContractingBooked != nil {
 		sets = append(sets, fmt.Sprintf("contracting_booked = $%d", argN))
 		args = append(args, *updates.ContractingBooked)
@@ -499,6 +506,7 @@ type Agent struct {
 	RoleBackground       string
 	FunHobbies           string
 	NotificationPref     string
+	CourseEnrolled       bool
 	ContractingBooked    bool
 	ContractingCompleted bool
 	SetupCompleted       bool
@@ -528,6 +536,7 @@ func (d *DB) GetAgent(ctx context.Context, discordID int64) (*Agent, error) {
          COALESCE(show_comp, false),
          COALESCE(role_background, ''), COALESCE(fun_hobbies, ''),
          COALESCE(notification_pref, 'discord'),
+         COALESCE(course_enrolled, false),
          COALESCE(contracting_booked, false), COALESCE(contracting_completed, false),
          COALESCE(setup_completed, false),
          form_completed_at, sorted_at, activated_at, kicked_at,
@@ -544,6 +553,7 @@ func (d *DB) GetAgent(ctx context.Context, discordID int64) (*Agent, error) {
 		&a.ShowComp,
 		&a.RoleBackground, &a.FunHobbies,
 		&a.NotificationPref,
+		&a.CourseEnrolled,
 		&a.ContractingBooked, &a.ContractingCompleted,
 		&a.SetupCompleted,
 		&a.FormCompletedAt, &a.SortedAt, &a.ActivatedAt, &a.KickedAt,
