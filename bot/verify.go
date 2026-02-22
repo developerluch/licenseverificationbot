@@ -14,6 +14,17 @@ import (
 )
 
 func (b *Bot) handleVerify(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.Member == nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "This command can only be used in a server.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
 	// Step 1: Defer (ephemeral)
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,

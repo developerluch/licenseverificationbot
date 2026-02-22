@@ -87,7 +87,10 @@ func (b *Bot) handleZoomList(s *discordgo.Session, i *discordgo.InteractionCreat
 	if err != nil {
 		log.Printf("zoom list: invalid user ID %s: %v", userID, err)
 	}
-	myVerticals, _ := b.db.GetUserZoomVerticals(ctx, userIDInt)
+	var myVerticals []db.ZoomVertical
+	if userIDInt != 0 {
+		myVerticals, _ = b.db.GetUserZoomVerticals(ctx, userIDInt)
+	}
 	mySet := make(map[int]bool)
 	for _, v := range myVerticals {
 		mySet[v.ID] = true
@@ -191,13 +194,18 @@ func (b *Bot) handleZoomLeave(s *discordgo.Session, i *discordgo.InteractionCrea
 	}
 	userIDInt, err := parseDiscordID(userID)
 	if err != nil {
+		b.followUp(s, i, "Internal error.")
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	b.db.LeaveZoomVertical(ctx, userIDInt, verticalID)
+	if err := b.db.LeaveZoomVertical(ctx, userIDInt, verticalID); err != nil {
+		log.Printf("zoom leave: %v", err)
+		b.followUp(s, i, "An error occurred leaving the vertical. Please try again later.")
+		return
+	}
 	b.followUp(s, i, "You've left the vertical.")
 }
 
