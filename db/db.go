@@ -79,7 +79,9 @@ func New(cfg *config.Config) (*DB, error) {
 	log.Println("Database connected successfully")
 
 	d := &DB{pool: pool}
-	if err := d.migrate(ctx); err != nil {
+	migCtx, migCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer migCancel()
+	if err := d.migrate(migCtx); err != nil {
 		return nil, fmt.Errorf("db: migration failed: %w", err)
 	}
 
