@@ -20,18 +20,23 @@ func main() {
 
 	cfg := config.MustLoad()
 
+	log.Printf("Config loaded — Guild: %s", cfg.GuildID)
+
 	database, err := db.New(cfg)
 	if err != nil {
 		log.Fatalf("Database init failed: %v", err)
 	}
 	defer database.Close()
+	log.Println("Database ready")
 
 	tlsClient := tlsclient.New()
+	log.Println("TLS client ready")
 
 	b, err := bot.New(cfg, database, tlsClient)
 	if err != nil {
 		log.Fatalf("Bot init failed: %v", err)
 	}
+	log.Println("Bot created, connecting to Discord...")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

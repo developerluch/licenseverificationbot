@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -40,7 +41,18 @@ type DB struct {
 }
 
 func New(cfg *config.Config) (*DB, error) {
-	pool, err := sql.Open("postgres", cfg.DatabaseURL)
+	dsn := cfg.DatabaseURL
+	// Railway internal Postgres doesn't use SSL; ensure sslmode is set
+	if !strings.Contains(dsn, "sslmode=") {
+		if strings.Contains(dsn, "?") {
+			dsn += "&sslmode=disable"
+		} else {
+			dsn += "?sslmode=disable"
+		}
+	}
+
+	log.Printf("Connecting to database...")
+	pool, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("db: open failed: %w", err)
 	}
@@ -49,12 +61,22 @@ func New(cfg *config.Config) (*DB, error) {
 	pool.SetMaxIdleConns(5)
 	pool.SetConnMaxLifetime(30 * time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := pool.PingContext(ctx); err != nil {
-		return nil, fmt.Errorf("db: ping failed: %w", err)
+	// Retry connection up to 5 times (Railway services may start before DB is ready)
+	var pingErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		pingErr = pool.PingContext(ctx)
+		cancel()
+		if pingErr == nil {
+			break
+		}
+		log.Printf("DB ping attempt %d/5 failed: %v", attempt, pingErr)
+		time.Sleep(time.Duration(attempt) * 2 * time.Second)
 	}
+	if pingErr != nil {
+		return nil, fmt.Errorf("db: ping failed after 5 attempts: %w", pingErr)
+	}
+	log.Println("Database connected successfully")
 
 	d := &DB{pool: pool}
 	if err := d.migrate(ctx); err != nil {
