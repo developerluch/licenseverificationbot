@@ -84,7 +84,7 @@ func (b *Bot) handleVerify(s *discordgo.Session, i *discordgo.InteractionCreate)
 	results, err := scraper.LookupByName(ctx, firstName, lastName)
 	if err != nil {
 		log.Printf("Scraper error for %s: %v", state, err)
-		msg := fmt.Sprintf("**Lookup Error:** %v\n\nThe %s lookup may be temporarily unavailable. Try again later.", err, state)
+		msg := fmt.Sprintf("The %s license lookup is temporarily unavailable. Please try again later.", state)
 		if url := scraper.ManualLookupURL(); url != "" {
 			msg += fmt.Sprintf("\n\nManual lookup: %s", url)
 		}
@@ -145,6 +145,7 @@ func (b *Bot) handleVerify(s *discordgo.Session, i *discordgo.InteractionCreate)
 		go b.postToChannel(s, i, match, state)
 		go b.dmNextSteps(s, i, match, state)
 		go b.assignRoles(s, i)
+		go b.syncGHLStage(userIDInt, db.StageVerified)
 
 		b.followUp(s, i, fmt.Sprintf(
 			"**License Verified!**\n\n"+
@@ -195,6 +196,18 @@ func (b *Bot) followUp(s *discordgo.Session, i *discordgo.InteractionCreate, con
 	}
 }
 
+// verifyLogChannelID returns the channel ID for posting verification results.
+// Falls back: LicenseVerifyLogChannelID -> LicenseCheckChannelID -> HiringLogChannelID.
+func (b *Bot) verifyLogChannelID() string {
+	if b.cfg.LicenseVerifyLogChannelID != "" {
+		return b.cfg.LicenseVerifyLogChannelID
+	}
+	if b.cfg.LicenseCheckChannelID != "" {
+		return b.cfg.LicenseCheckChannelID
+	}
+	return b.cfg.HiringLogChannelID
+}
+
 func (b *Bot) postToChannel(s *discordgo.Session, i *discordgo.InteractionCreate, match *scrapers.LicenseResult, state string) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -202,10 +215,7 @@ func (b *Bot) postToChannel(s *discordgo.Session, i *discordgo.InteractionCreate
 		}
 	}()
 
-	channelID := b.cfg.LicenseCheckChannelID
-	if channelID == "" {
-		channelID = b.cfg.HiringLogChannelID
-	}
+	channelID := b.verifyLogChannelID()
 	if channelID == "" {
 		return
 	}
@@ -464,19 +474,21 @@ func (b *Bot) performVerification(ctx context.Context, firstName, lastName, stat
 }
 
 func cleanPhoneNumber(phone string) string {
-	digits := ""
-	for _, c := range phone {
-		if c >= '0' && c <= '9' {
-			digits += string(c)
+	digits := strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r
 		}
-	}
-	if len(digits) == 10 {
-		return "+1" + digits
-	}
+		return -1
+	}, phone)
+	// Remove leading 1 for US numbers
 	if len(digits) == 11 && digits[0] == '1' {
-		return "+" + digits
+		digits = digits[1:]
 	}
-	return digits
+	// Require exactly 10 digits for a valid US phone number
+	if len(digits) != 10 {
+		return ""
+	}
+	return "+1" + digits
 }
 
 func nvl(s, fallback string) string {

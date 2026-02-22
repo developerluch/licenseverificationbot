@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -67,6 +68,14 @@ func (b *Bot) runSchedulerCycle(mailer *email.Client) {
 
 	// 5. Inactivity check (daily)
 	b.checkInactivity(ctx)
+
+	// 6. Recruiter nudges for unlicensed agents past threshold
+	b.sendRecruiterNudges(ctx)
+
+	// 7. Daily tracker auto-post (only once per day, early afternoon ET)
+	if nowET.Hour() >= 13 && nowET.Hour() < 14 {
+		b.postDailyTracker(ctx)
+	}
 }
 
 // retryVerifications attempts auto-verify for all pending deadlines.
@@ -123,6 +132,9 @@ func (b *Bot) retryVerifications(ctx context.Context, mailer *email.Client) {
 
 			// Post to channel
 			b.postSchedulerVerifyToChannel(result.Match, dl.HomeState, userID)
+
+			// GHL sync
+			go b.syncGHLStage(dl.DiscordID, db.StageVerified)
 		}
 	}
 }
@@ -249,10 +261,7 @@ func (b *Bot) notifyAdmin(dl db.VerificationDeadline, userID string) {
 }
 
 func (b *Bot) postSchedulerVerifyToChannel(match *scrapers.LicenseResult, state, userID string) {
-	channelID := b.cfg.LicenseCheckChannelID
-	if channelID == "" {
-		channelID = b.cfg.HiringLogChannelID
-	}
+	channelID := b.verifyLogChannelID()
 	if channelID == "" {
 		return
 	}
@@ -271,4 +280,122 @@ func (b *Bot) postSchedulerVerifyToChannel(match *scrapers.LicenseResult, state,
 	}
 
 	b.session.ChannelMessageSendEmbed(channelID, embed)
+}
+
+// sendRecruiterNudges DMs recruiters about their unlicensed recruits past the nudge threshold.
+func (b *Bot) sendRecruiterNudges(ctx context.Context) {
+	agents, err := b.db.GetAgentsNeedingNudge(ctx, b.cfg.NudgeAfterDays, 7)
+	if err != nil {
+		log.Printf("Scheduler: failed to get agents needing nudge: %v", err)
+		return
+	}
+	if len(agents) == 0 {
+		return
+	}
+
+	// Group by upline
+	type nudgeGroup struct {
+		recruiterDiscordID int64
+		recruiterName      string
+		agentNames         []string
+	}
+	groups := make(map[string]*nudgeGroup)
+
+	for _, a := range agents {
+		key := a.UplineManager
+		if key == "" {
+			key = "__unassigned__"
+		}
+		g, ok := groups[key]
+		if !ok {
+			g = &nudgeGroup{
+				recruiterDiscordID: a.UplineManagerDiscordID,
+				recruiterName:      a.UplineManager,
+			}
+			groups[key] = g
+		}
+		name := a.FirstName + " " + a.LastName
+		if name == " " {
+			name = fmt.Sprintf("Agent #%d", a.DiscordID)
+		}
+		g.agentNames = append(g.agentNames, name)
+	}
+
+	for _, g := range groups {
+		var lines []string
+		for _, name := range g.agentNames {
+			lines = append(lines, "- "+name)
+		}
+		msg := fmt.Sprintf(
+			"**Recruiter Nudge:** The following recruits have been unlicensed for %d+ days:\n\n%s\n\n"+
+				"Please follow up with them to check on their licensing progress.",
+			b.cfg.NudgeAfterDays, strings.Join(lines, "\n"))
+
+		if g.recruiterDiscordID != 0 {
+			recruiterID := strconv.FormatInt(g.recruiterDiscordID, 10)
+			b.dmUser(b.session, recruiterID, msg)
+			log.Printf("Scheduler: nudged recruiter %s (%d) about %d unlicensed agents",
+				g.recruiterName, g.recruiterDiscordID, len(g.agentNames))
+		} else {
+			channelID := b.cfg.AdminNotificationChannelID
+			if channelID == "" {
+				channelID = b.cfg.LicenseCheckChannelID
+			}
+			if channelID != "" {
+				embed := &discordgo.MessageEmbed{
+					Title:       fmt.Sprintf("Recruiter Nudge: %s", nvl(g.recruiterName, "Unknown")),
+					Description: msg,
+					Color:       0xF39C12,
+					Timestamp:   time.Now().Format(time.RFC3339),
+				}
+				b.session.ChannelMessageSendEmbed(channelID, embed)
+			}
+		}
+	}
+
+	// Mark nudges sent
+	for _, a := range agents {
+		b.db.UpdateNudgeSent(ctx, a.DiscordID)
+	}
+}
+
+// postDailyTracker posts the overall tracker stats to the configured tracker channel.
+func (b *Bot) postDailyTracker(ctx context.Context) {
+	channelID := b.cfg.TrackerChannelID
+	if channelID == "" {
+		return
+	}
+
+	stats, err := b.db.GetOverallTrackerStats(ctx)
+	if err != nil {
+		log.Printf("Scheduler: failed to get tracker stats: %v", err)
+		return
+	}
+
+	bar := progressBar(stats.Percentage)
+
+	agencies, _ := b.db.GetAgencyTrackerStats(ctx)
+	var agencyLines []string
+	for _, a := range agencies {
+		agencyLines = append(agencyLines, fmt.Sprintf("**%s:** %d/%d (%.0f%%)",
+			a.Agency, a.LicensedAgents, a.TotalAgents, a.Percentage))
+	}
+
+	description := fmt.Sprintf(
+		"Licensed: **%d/%d** (%.1f%%)\n%s",
+		stats.LicensedAgents, stats.TotalAgents, stats.Percentage, bar)
+
+	if len(agencyLines) > 0 {
+		description += "\n\n" + strings.Join(agencyLines, "\n")
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "Daily License Tracker",
+		Description: description,
+		Color:       0x3498DB,
+		Timestamp:   time.Now().Format(time.RFC3339),
+	}
+
+	b.session.ChannelMessageSendEmbed(channelID, embed)
+	log.Println("Scheduler: posted daily tracker update")
 }

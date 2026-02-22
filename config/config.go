@@ -14,8 +14,9 @@ type Config struct {
 	GuildID               string
 	DatabaseURL           string
 	CapSolverAPIKey       string
-	LicenseCheckChannelID string
-	HiringLogChannelID    string
+	LicenseCheckChannelID      string
+	LicenseVerifyLogChannelID string
+	HiringLogChannelID        string
 	StudentRoleID         string
 	LicensedAgentRoleID   string
 	LogLevel              string
@@ -57,9 +58,42 @@ type Config struct {
 	CheckinDay          int // 0=Sunday, 1=Monday, ..., 6=Saturday
 	CheckinHour         int // Hour in ET (0-23)
 
+	// Tracker
+	TrackerChannelID string
+	NudgeAfterDays   int
+
+	// Agency owner Discord IDs (for approval flow)
+	AgencyOwnerTFC       string
+	AgencyOwnerRadiant   string
+	AgencyOwnerGBU       string
+	AgencyOwnerTruLight  string
+	AgencyOwnerThrive    string
+	AgencyOwnerThePoint  string
+	AgencyOwnerSynergy   string
+	AgencyOwnerIlluminate string
+	AgencyOwnerEliteOne  string
+	PendingRoleID        string
+
+	// GoHighLevel CRM
+	GHLAPIKey       string
+	GHLLocationID   string
+	GHLPipelineID   string
+	GHLStageWelcome string
+	GHLStageForm    string
+	GHLStageSorted  string
+	GHLStageStudent string
+	GHLStageVerified    string
+	GHLStageContracting string
+	GHLStageSetup       string
+	GHLStageActive      string
+	GHLCFDiscordID  string
+	GHLCFAgency     string
+	GHLCFState      string
+
 	// API Server
-	APIToken string
-	APIPort  string
+	APIToken      string
+	APIPort       string
+	AllowedOrigin string
 }
 
 func MustLoad() *Config {
@@ -70,8 +104,9 @@ func MustLoad() *Config {
 		GuildID:               os.Getenv("GUILD_ID"),
 		DatabaseURL:           os.Getenv("DATABASE_URL"),
 		CapSolverAPIKey:       os.Getenv("CAPSOLVER_API_KEY"),
-		LicenseCheckChannelID: os.Getenv("LICENSE_CHECK_CHANNEL_ID"),
-		HiringLogChannelID:    os.Getenv("HIRING_LOG_CHANNEL_ID"),
+		LicenseCheckChannelID:      os.Getenv("LICENSE_CHECK_CHANNEL_ID"),
+		LicenseVerifyLogChannelID: os.Getenv("LICENSE_VERIFY_LOG_CHANNEL_ID"),
+		HiringLogChannelID:        os.Getenv("HIRING_LOG_CHANNEL_ID"),
 		StudentRoleID:         os.Getenv("STUDENT_ROLE_ID"),
 		LicensedAgentRoleID:   os.Getenv("LICENSED_AGENT_ROLE_ID"),
 		LogLevel:              os.Getenv("LOG_LEVEL"),
@@ -101,8 +136,37 @@ func MustLoad() *Config {
 
 		StaffRoleIDs: os.Getenv("STAFF_ROLE_IDS"),
 
-		APIToken: os.Getenv("API_TOKEN"),
-		APIPort:  os.Getenv("API_PORT"),
+		TrackerChannelID: os.Getenv("TRACKER_CHANNEL_ID"),
+
+		AgencyOwnerTFC:       os.Getenv("AGENCY_OWNER_TFC"),
+		AgencyOwnerRadiant:   os.Getenv("AGENCY_OWNER_RADIANT"),
+		AgencyOwnerGBU:       os.Getenv("AGENCY_OWNER_GBU"),
+		AgencyOwnerTruLight:  os.Getenv("AGENCY_OWNER_TRULIGHT"),
+		AgencyOwnerThrive:    os.Getenv("AGENCY_OWNER_THRIVE"),
+		AgencyOwnerThePoint:  os.Getenv("AGENCY_OWNER_THE_POINT"),
+		AgencyOwnerSynergy:   os.Getenv("AGENCY_OWNER_SYNERGY"),
+		AgencyOwnerIlluminate: os.Getenv("AGENCY_OWNER_ILLUMINATE"),
+		AgencyOwnerEliteOne:  os.Getenv("AGENCY_OWNER_ELITE_ONE"),
+		PendingRoleID:        os.Getenv("PENDING_ROLE_ID"),
+
+		GHLAPIKey:           os.Getenv("GHL_API_KEY"),
+		GHLLocationID:       os.Getenv("GHL_LOCATION_ID"),
+		GHLPipelineID:       os.Getenv("GHL_PIPELINE_ID"),
+		GHLStageWelcome:     os.Getenv("GHL_STAGE_WELCOME"),
+		GHLStageForm:        os.Getenv("GHL_STAGE_FORM"),
+		GHLStageSorted:      os.Getenv("GHL_STAGE_SORTED"),
+		GHLStageStudent:     os.Getenv("GHL_STAGE_STUDENT"),
+		GHLStageVerified:    os.Getenv("GHL_STAGE_VERIFIED"),
+		GHLStageContracting: os.Getenv("GHL_STAGE_CONTRACTING"),
+		GHLStageSetup:       os.Getenv("GHL_STAGE_SETUP"),
+		GHLStageActive:      os.Getenv("GHL_STAGE_ACTIVE"),
+		GHLCFDiscordID:      os.Getenv("GHL_CF_DISCORD_ID"),
+		GHLCFAgency:         os.Getenv("GHL_CF_AGENCY"),
+		GHLCFState:          os.Getenv("GHL_CF_STATE"),
+
+		APIToken:      os.Getenv("API_TOKEN"),
+		APIPort:       os.Getenv("API_PORT"),
+		AllowedOrigin: os.Getenv("ALLOWED_ORIGIN"),
 	}
 
 	if cfg.LogLevel == "" {
@@ -115,6 +179,7 @@ func MustLoad() *Config {
 	cfg.InactivityKickWeeks = getEnvInt("INACTIVITY_KICK_WEEKS", 4)
 	cfg.CheckinDay = getEnvInt("CHECKIN_DAY", 1) // 1 = Monday
 	cfg.CheckinHour = getEnvInt("CHECKIN_HOUR", 9)
+	cfg.NudgeAfterDays = getEnvInt("NUDGE_AFTER_DAYS", 30)
 
 	// Validate required
 	if cfg.DiscordToken == "" {
@@ -188,6 +253,46 @@ func (c *Config) GetAgencyRoleID(agency string) string {
 		return c.EliteOneRoleID
 	default:
 		return c.UnassignedRoleID
+	}
+}
+
+// GHLStageMap returns the mapping of bot stages (1-8) to GHL stage IDs.
+func (c *Config) GHLStageMap() map[int]string {
+	return map[int]string{
+		1: c.GHLStageWelcome,
+		2: c.GHLStageForm,
+		3: c.GHLStageSorted,
+		4: c.GHLStageStudent,
+		5: c.GHLStageVerified,
+		6: c.GHLStageContracting,
+		7: c.GHLStageSetup,
+		8: c.GHLStageActive,
+	}
+}
+
+// GetAgencyOwnerID returns the Discord user ID of the agency owner for approval flow.
+func (c *Config) GetAgencyOwnerID(agency string) string {
+	switch strings.ToLower(strings.TrimSpace(agency)) {
+	case "tfc", "topfloorclosers", "top floor closers":
+		return c.AgencyOwnerTFC
+	case "radiant", "radiant financial":
+		return c.AgencyOwnerRadiant
+	case "gbu":
+		return c.AgencyOwnerGBU
+	case "trulight", "tru light":
+		return c.AgencyOwnerTruLight
+	case "thrive":
+		return c.AgencyOwnerThrive
+	case "the point", "thepoint":
+		return c.AgencyOwnerThePoint
+	case "synergy":
+		return c.AgencyOwnerSynergy
+	case "illuminate":
+		return c.AgencyOwnerIlluminate
+	case "elite one", "eliteone", "elite 1":
+		return c.AgencyOwnerEliteOne
+	default:
+		return ""
 	}
 }
 

@@ -230,6 +230,64 @@ func (d *DB) migrate(ctx context.Context) error {
             completed_at TIMESTAMPTZ,
             UNIQUE(discord_id, item_key)
         )`,
+
+		// Phase 2: Recruiter nudge columns
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS upline_manager_discord_id BIGINT`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS last_nudge_sent_at TIMESTAMPTZ`,
+
+		// Phase 3: Approval flow columns
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS direct_manager_discord_id BIGINT`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS direct_manager_name TEXT`,
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS approval_status TEXT DEFAULT 'none'`,
+		`CREATE TABLE IF NOT EXISTS approval_requests (
+			id SERIAL PRIMARY KEY,
+			agent_discord_id BIGINT NOT NULL,
+			guild_id BIGINT NOT NULL,
+			agency TEXT NOT NULL,
+			owner_discord_id BIGINT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			denial_reason TEXT,
+			requested_at TIMESTAMPTZ DEFAULT NOW(),
+			responded_at TIMESTAMPTZ,
+			dm_message_id TEXT,
+			UNIQUE(agent_discord_id, guild_id)
+		)`,
+
+		// Phase 4: GHL integration
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS ghl_contact_id TEXT`,
+
+		// Phase 5: Activity entries for leaderboard
+		`CREATE TABLE IF NOT EXISTS activity_entries (
+			id SERIAL PRIMARY KEY,
+			discord_id BIGINT NOT NULL,
+			guild_id BIGINT NOT NULL,
+			activity_type TEXT NOT NULL,
+			count INT NOT NULL DEFAULT 1,
+			notes TEXT,
+			logged_at TIMESTAMPTZ DEFAULT NOW(),
+			week_start DATE NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_activity_entries_week ON activity_entries(discord_id, week_start)`,
+		`CREATE INDEX IF NOT EXISTS idx_activity_entries_type ON activity_entries(activity_type, week_start)`,
+
+		// Phase 6: Zoom verticals
+		`CREATE TABLE IF NOT EXISTS zoom_verticals (
+			id SERIAL PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			description TEXT,
+			zoom_link TEXT,
+			schedule TEXT,
+			created_by BIGINT,
+			is_active BOOLEAN DEFAULT TRUE,
+			created_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS zoom_assignments (
+			id SERIAL PRIMARY KEY,
+			discord_id BIGINT NOT NULL,
+			vertical_id INT NOT NULL REFERENCES zoom_verticals(id),
+			joined_at TIMESTAMPTZ DEFAULT NOW(),
+			UNIQUE(discord_id, vertical_id)
+		)`,
 	}
 
 	for _, m := range migrations {
@@ -302,9 +360,15 @@ type AgentUpdate struct {
 	FormCompletedAt      *time.Time
 	SortedAt             *time.Time
 	ActivatedAt          *time.Time
-	KickedAt             *time.Time
-	KickedReason         *string
-	LastActive           *time.Time
+	KickedAt                 *time.Time
+	KickedReason             *string
+	LastActive               *time.Time
+	UplineManagerDiscordID   *int64
+	LastNudgeSentAt          *time.Time
+	DirectManagerDiscordID   *int64
+	DirectManagerName        *string
+	ApprovalStatus           *string
+	GHLContactID             *string
 }
 
 func (d *DB) UpsertAgent(ctx context.Context, discordID, guildID int64, updates AgentUpdate) error {
@@ -479,6 +543,36 @@ func (d *DB) UpsertAgent(ctx context.Context, discordID, guildID int64, updates 
 		args = append(args, *updates.LastActive)
 		argN++
 	}
+	if updates.UplineManagerDiscordID != nil {
+		sets = append(sets, fmt.Sprintf("upline_manager_discord_id = $%d", argN))
+		args = append(args, *updates.UplineManagerDiscordID)
+		argN++
+	}
+	if updates.LastNudgeSentAt != nil {
+		sets = append(sets, fmt.Sprintf("last_nudge_sent_at = $%d", argN))
+		args = append(args, *updates.LastNudgeSentAt)
+		argN++
+	}
+	if updates.DirectManagerDiscordID != nil {
+		sets = append(sets, fmt.Sprintf("direct_manager_discord_id = $%d", argN))
+		args = append(args, *updates.DirectManagerDiscordID)
+		argN++
+	}
+	if updates.DirectManagerName != nil {
+		sets = append(sets, fmt.Sprintf("direct_manager_name = $%d", argN))
+		args = append(args, *updates.DirectManagerName)
+		argN++
+	}
+	if updates.ApprovalStatus != nil {
+		sets = append(sets, fmt.Sprintf("approval_status = $%d", argN))
+		args = append(args, *updates.ApprovalStatus)
+		argN++
+	}
+	if updates.GHLContactID != nil {
+		sets = append(sets, fmt.Sprintf("ghl_contact_id = $%d", argN))
+		args = append(args, *updates.GHLContactID)
+		argN++
+	}
 
 	if len(args) == 0 {
 		return nil // Nothing to update beyond updated_at
@@ -486,22 +580,12 @@ func (d *DB) UpsertAgent(ctx context.Context, discordID, guildID int64, updates 
 
 	args = append(args, discordID)
 	query := fmt.Sprintf("UPDATE onboarding_agents SET %s WHERE discord_id = $%d",
-		joinStrings(sets, ", "), argN)
+		strings.Join(sets, ", "), argN)
 
 	_, err = d.pool.ExecContext(ctx, query, args...)
 	return err
 }
 
-func joinStrings(ss []string, sep string) string {
-	result := ""
-	for i, s := range ss {
-		if i > 0 {
-			result += sep
-		}
-		result += s
-	}
-	return result
-}
 
 // Agent represents a row from onboarding_agents
 type Agent struct {
@@ -538,36 +622,58 @@ type Agent struct {
 	SortedAt             *time.Time
 	ActivatedAt          *time.Time
 	KickedAt             *time.Time
-	KickedReason         string
-	LastActive           *time.Time
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	KickedReason             string
+	LastActive               *time.Time
+	UplineManagerDiscordID   int64
+	LastNudgeSentAt          *time.Time
+	DirectManagerDiscordID   int64
+	DirectManagerName        string
+	ApprovalStatus           string
+	GHLContactID             string
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
-func (d *DB) GetAgent(ctx context.Context, discordID int64) (*Agent, error) {
+// AgentSelectColumns returns the COALESCE'd column list for SELECT queries on onboarding_agents.
+// Pass an optional table alias prefix (e.g. "a") or empty string for no prefix.
+func AgentSelectColumns(prefix string) string {
+	p := ""
+	if prefix != "" {
+		p = prefix + "."
+	}
+	return fmt.Sprintf(`%[1]sdiscord_id, %[1]sguild_id,
+         COALESCE(%[1]sfirst_name,''), COALESCE(%[1]slast_name,''),
+         COALESCE(%[1]sphone_number,''), COALESCE(%[1]semail,''),
+         COALESCE(%[1]semail_opt_in, false),
+         COALESCE(%[1]sstate,''), COALESCE(%[1]slicense_verified, false),
+         COALESCE(%[1]slicense_npn,''), COALESCE(%[1]scurrent_stage, 1),
+         COALESCE(%[1]sagency,''), COALESCE(%[1]supline_manager,''),
+         COALESCE(%[1]sexperience_level,''), COALESCE(%[1]slicense_status,'none'),
+         COALESCE(%[1]sproduction_written,''), COALESCE(%[1]slead_source,''),
+         COALESCE(%[1]svision_goals,''), COALESCE(%[1]scomp_pct,''),
+         COALESCE(%[1]sshow_comp, false),
+         COALESCE(%[1]srole_background,''), COALESCE(%[1]sfun_hobbies,''),
+         COALESCE(%[1]snotification_pref,'discord'),
+         COALESCE(%[1]scourse_enrolled, false),
+         COALESCE(%[1]scontracting_booked, false), COALESCE(%[1]scontracting_completed, false),
+         COALESCE(%[1]ssetup_completed, false),
+         %[1]sform_completed_at, %[1]ssorted_at, %[1]sactivated_at, %[1]skicked_at,
+         COALESCE(%[1]skicked_reason,''),
+         %[1]slast_active,
+         COALESCE(%[1]supline_manager_discord_id, 0),
+         %[1]slast_nudge_sent_at,
+         COALESCE(%[1]sdirect_manager_discord_id, 0),
+         COALESCE(%[1]sdirect_manager_name, ''),
+         COALESCE(%[1]sapproval_status, 'none'),
+         COALESCE(%[1]sghl_contact_id, ''),
+         %[1]screated_at, %[1]supdated_at`, p)
+}
+
+// ScanAgent scans a row into an Agent struct. The column order must match AgentSelectColumns.
+func ScanAgent(scan func(dest ...interface{}) error) (Agent, error) {
 	var a Agent
-	err := d.pool.QueryRowContext(ctx,
-		`SELECT discord_id, guild_id,
-         COALESCE(first_name, ''), COALESCE(last_name, ''),
-         COALESCE(phone_number, ''), COALESCE(email, ''),
-         COALESCE(email_opt_in, false),
-         COALESCE(state, ''), COALESCE(license_verified, false),
-         COALESCE(license_npn, ''), COALESCE(current_stage, 1),
-         COALESCE(agency, ''), COALESCE(upline_manager, ''),
-         COALESCE(experience_level, ''), COALESCE(license_status, 'none'),
-         COALESCE(production_written, ''), COALESCE(lead_source, ''),
-         COALESCE(vision_goals, ''), COALESCE(comp_pct, ''),
-         COALESCE(show_comp, false),
-         COALESCE(role_background, ''), COALESCE(fun_hobbies, ''),
-         COALESCE(notification_pref, 'discord'),
-         COALESCE(course_enrolled, false),
-         COALESCE(contracting_booked, false), COALESCE(contracting_completed, false),
-         COALESCE(setup_completed, false),
-         form_completed_at, sorted_at, activated_at, kicked_at,
-         COALESCE(kicked_reason, ''),
-         last_active, created_at, updated_at
-         FROM onboarding_agents WHERE discord_id = $1`, discordID,
-	).Scan(&a.DiscordID, &a.GuildID, &a.FirstName, &a.LastName,
+	err := scan(
+		&a.DiscordID, &a.GuildID, &a.FirstName, &a.LastName,
 		&a.PhoneNumber, &a.Email, &a.EmailOptIn, &a.State, &a.LicenseVerified,
 		&a.LicenseNPN, &a.CurrentStage,
 		&a.Agency, &a.UplineManager,
@@ -582,7 +688,22 @@ func (d *DB) GetAgent(ctx context.Context, discordID int64) (*Agent, error) {
 		&a.SetupCompleted,
 		&a.FormCompletedAt, &a.SortedAt, &a.ActivatedAt, &a.KickedAt,
 		&a.KickedReason,
-		&a.LastActive, &a.CreatedAt, &a.UpdatedAt)
+		&a.LastActive,
+		&a.UplineManagerDiscordID,
+		&a.LastNudgeSentAt,
+		&a.DirectManagerDiscordID,
+		&a.DirectManagerName,
+		&a.ApprovalStatus,
+		&a.GHLContactID,
+		&a.CreatedAt, &a.UpdatedAt,
+	)
+	return a, err
+}
+
+func (d *DB) GetAgent(ctx context.Context, discordID int64) (*Agent, error) {
+	query := fmt.Sprintf(`SELECT %s FROM onboarding_agents WHERE discord_id = $1`, AgentSelectColumns(""))
+	row := d.pool.QueryRowContext(ctx, query, discordID)
+	a, err := ScanAgent(row.Scan)
 
 	if err == sql.ErrNoRows {
 		return nil, nil

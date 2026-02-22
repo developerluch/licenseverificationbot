@@ -44,6 +44,8 @@ func (b *Bot) handleAgentCommand(s *discordgo.Session, i *discordgo.InteractionC
 		b.handleAgentStats(s, i)
 	case "kick":
 		b.handleAgentKick(s, i, sub.Options)
+	case "assign-manager":
+		b.handleAssignManager(s, i, sub.Options)
 	}
 }
 
@@ -102,10 +104,11 @@ func (b *Bot) handleAgentList(s *discordgo.Session, i *discordgo.InteractionCrea
 	}
 
 	if err != nil {
+		log.Printf("admin handler: handleAgentList: %v", err)
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: fmt.Sprintf("Error: %v", err),
+				Content: "An error occurred. Please try again later.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
@@ -306,10 +309,11 @@ func (b *Bot) handleAgentPromote(s *discordgo.Session, i *discordgo.InteractionC
 func (b *Bot) handleAgentStats(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	counts, err := b.db.GetAgentCounts(context.Background())
 	if err != nil {
+		log.Printf("admin handler: handleAgentStats: %v", err)
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: fmt.Sprintf("Error: %v", err),
+				Content: "An error occurred. Please try again later.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
@@ -372,6 +376,9 @@ func (b *Bot) handleAgentKick(s *discordgo.Session, i *discordgo.InteractionCrea
 	// Mark in DB
 	b.db.KickAgent(context.Background(), userIDInt, reason)
 
+	// GHL: mark opportunity as lost
+	go b.markGHLLost(userIDInt)
+
 	// Kick from server
 	err = s.GuildMemberDeleteWithReason(i.GuildID, targetUser.ID, reason)
 	msg := fmt.Sprintf("<@%s> has been removed. Reason: %s", targetUser.ID, reason)
@@ -431,10 +438,22 @@ func (b *Bot) handleContractingAdd(s *discordgo.Session, i *discordgo.Interactio
 		}
 	}
 
+	if url != "" && !strings.HasPrefix(url, "https://calendly.com/") {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "URL must be a valid Calendly link (https://calendly.com/...)",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
 	err := b.db.AddContractingManager(context.Background(), name, url, priority)
 	msg := fmt.Sprintf("Added contracting manager **%s** (priority %d).", name, priority)
 	if err != nil {
-		msg = fmt.Sprintf("Failed to add manager: %v", err)
+		log.Printf("admin handler: handleContractingAdd: %v", err)
+		msg = "An error occurred. Please try again later."
 	}
 
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -455,7 +474,8 @@ func (b *Bot) handleContractingRemove(s *discordgo.Session, i *discordgo.Interac
 	err := b.db.DeactivateContractingManager(context.Background(), name)
 	msg := fmt.Sprintf("Deactivated contracting manager **%s**.", name)
 	if err != nil {
-		msg = fmt.Sprintf("Failed to remove manager: %v", err)
+		log.Printf("admin handler: handleContractingRemove: %v", err)
+		msg = "An error occurred. Please try again later."
 	}
 
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -470,10 +490,11 @@ func (b *Bot) handleContractingRemove(s *discordgo.Session, i *discordgo.Interac
 func (b *Bot) handleContractingList(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	managers, err := b.db.GetContractingManagers(context.Background())
 	if err != nil {
+		log.Printf("admin handler: handleContractingList: %v", err)
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: fmt.Sprintf("Error: %v", err),
+				Content: "An error occurred. Please try again later.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
@@ -601,4 +622,64 @@ func (b *Bot) handleSetupRules(s *discordgo.Session, i *discordgo.InteractionCre
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
+}
+
+// handleAssignManager assigns a direct manager to an agent.
+func (b *Bot) handleAssignManager(s *discordgo.Session, i *discordgo.InteractionCreate, opts []*discordgo.ApplicationCommandInteractionDataOption) {
+	if len(opts) < 2 {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Please provide both agent and manager.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	var agentUser, managerUser *discordgo.User
+	for _, opt := range opts {
+		switch opt.Name {
+		case "agent":
+			agentUser = opt.UserValue(s)
+		case "manager":
+			managerUser = opt.UserValue(s)
+		}
+	}
+
+	if agentUser == nil || managerUser == nil {
+		return
+	}
+
+	agentIDInt, err := parseDiscordID(agentUser.ID)
+	if err != nil {
+		return
+	}
+	guildIDInt, err := parseDiscordID(i.GuildID)
+	if err != nil {
+		return
+	}
+	managerIDInt, err := parseDiscordID(managerUser.ID)
+	if err != nil {
+		return
+	}
+
+	managerName := managerUser.GlobalName
+	if managerName == "" {
+		managerName = managerUser.Username
+	}
+
+	b.db.UpsertAgent(context.Background(), agentIDInt, guildIDInt, db.AgentUpdate{
+		DirectManagerDiscordID: &managerIDInt,
+		DirectManagerName:      &managerName,
+	})
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: fmt.Sprintf("Assigned <@%s> as direct manager for <@%s>.", managerUser.ID, agentUser.ID),
+			Flags:   discordgo.MessageFlagsEphemeral,
+		},
+	})
+	log.Printf("Admin: assigned manager %s to agent %s", managerUser.ID, agentUser.ID)
 }

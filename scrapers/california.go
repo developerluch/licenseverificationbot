@@ -13,6 +13,8 @@ import (
 )
 
 const caBaseURL = "https://cdicloud.insurance.ca.gov/cal"
+// TODO: Extract Turnstile site key from page HTML dynamically instead of hardcoding.
+// If CA DOI rotates the key, this will need updating.
 const caTurnstileSiteKey = "0x4AAAAAAAeV7o-X_350Kljk"
 
 type CaliforniaScraper struct {

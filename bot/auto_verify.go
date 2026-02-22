@@ -119,6 +119,9 @@ func (b *Bot) onLicensedRoleAdded(s *discordgo.Session, e *discordgo.GuildMember
 		// Post to channel
 		b.postAutoVerifyToChannel(s, e, result.Match, state)
 
+		// GHL sync
+		go b.syncGHLStage(userIDInt, db.StageVerified)
+
 	} else {
 		log.Printf("Auto-verify: FAILED for %s %s (%s): %s",
 			firstName, lastName, state, result.Error+result.Message)
@@ -265,10 +268,7 @@ func (b *Bot) dmVerificationSuccess(s *discordgo.Session, e *discordgo.GuildMemb
 }
 
 func (b *Bot) postAutoVerifyToChannel(s *discordgo.Session, e *discordgo.GuildMemberUpdate, match *scrapers.LicenseResult, state string) {
-	channelID := b.cfg.LicenseCheckChannelID
-	if channelID == "" {
-		channelID = b.cfg.HiringLogChannelID
-	}
+	channelID := b.verifyLogChannelID()
 	if channelID == "" {
 		return
 	}

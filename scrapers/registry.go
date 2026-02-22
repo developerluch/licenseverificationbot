@@ -20,25 +20,45 @@ var NAICStates = map[string]bool{
 	"WV": true,
 }
 
-// ManualLookupURLs -- states that require manual lookup (no API, no CAPTCHA solving).
+// ManualLookupURLs -- states/territories that require manual lookup (no API, no CAPTCHA solving).
 var ManualLookupURLs = map[string]string{
+	// States with SIRCON-based lookup portals
 	"CO": "https://sircon.com/ComplianceExpress/",
 	"GA": "https://sircon.com/ComplianceExpress/",
 	"IN": "https://sircon.com/ComplianceExpress/",
+	"MN": "https://sircon.com/ComplianceExpress/",
+	"PA": "https://sircon.com/ComplianceExpress/",
+	"WY": "https://sircon.com/ComplianceExpress/",
+
+	// States with their own DOI portals
 	"KY": "https://insurance.ky.gov/ppc/agentlookup.aspx",
 	"LA": "https://www.ldi.la.gov/producers/agent-search",
 	"ME": "https://www.maine.gov/pfr/insurance/licensee-search",
 	"MI": "https://difs.state.mi.us/Licensees/",
-	"MN": "https://sircon.com/ComplianceExpress/",
 	"MS": "https://www.mid.ms.gov/licensing/agent-search.aspx",
 	"NV": "https://doi.nv.gov/Licensing/Agent_Lookup/",
 	"NY": "https://myportal.dfs.ny.gov/web/guest/individual-or-entity-look-up",
 	"OH": "https://gateway.insurance.ohio.gov/UI/ODI.Agent.Public/",
-	"PA": "https://sircon.com/ComplianceExpress/",
 	"UT": "https://insurance.utah.gov/licensee-search/",
 	"VA": "https://scc.virginia.gov/pages/Bureau-of-Insurance",
 	"WA": "https://www.insurance.wa.gov/agent-broker-search",
-	"WY": "https://sircon.com/ComplianceExpress/",
+
+	// US Territories
+	"PR": "https://ocs.gobierno.pr/",
+	"GU": "https://doa.guam.gov/",
+	"VI": "https://ltg.gov.vi/division-of-banking-insurance-and-financial-regulation/",
+	"MP": "", // Northern Mariana Islands -- no online lookup system
+	"AS": "", // American Samoa -- no online lookup system
+}
+
+// stateFullNames maps state/territory codes to full names for user-friendly messages.
+var stateFullNames = map[string]string{
+	"CO": "Colorado", "GA": "Georgia", "IN": "Indiana", "KY": "Kentucky",
+	"LA": "Louisiana", "ME": "Maine", "MI": "Michigan", "MN": "Minnesota",
+	"MS": "Mississippi", "NV": "Nevada", "NY": "New York", "OH": "Ohio",
+	"PA": "Pennsylvania", "UT": "Utah", "VA": "Virginia", "WA": "Washington",
+	"WY": "Wyoming", "PR": "Puerto Rico", "GU": "Guam",
+	"VI": "US Virgin Islands", "MP": "Northern Mariana Islands", "AS": "American Samoa",
 }
 
 // Registry routes state codes to the appropriate scraper.
@@ -111,9 +131,15 @@ func (s *ManualScraper) LookupByLicenseNumber(ctx context.Context, licenseNumber
 }
 
 func (s *ManualScraper) manualResult() []LicenseResult {
-	msg := fmt.Sprintf("Automated lookup not available for %s.", s.stateCode)
+	stateName := stateFullNames[s.stateCode]
+	if stateName == "" {
+		stateName = s.stateCode
+	}
+	msg := fmt.Sprintf("Automated lookup not available for %s (%s).", stateName, s.stateCode)
 	if s.lookupURL != "" {
 		msg += " Please verify manually at " + s.lookupURL
+	} else {
+		msg += " Try searching the NAIC database at https://sbs.naic.org/solar/external/pages/#/search/licensee/search"
 	}
 	return []LicenseResult{{
 		Found: false,

@@ -27,6 +27,8 @@ type LicenseResult struct {
 }
 
 // IsLifeLicensed returns true if the license is active and covers life insurance.
+// Note: "life" substring matching is sufficient for insurance license types.
+// False positives from words like "nightlife" don't occur in DOI/NAIC license fields.
 func (r LicenseResult) IsLifeLicensed() bool {
 	if !r.Active {
 		return false

@@ -8,6 +8,7 @@ import (
 
 // registerCommands registers all slash commands with Discord.
 func (b *Bot) registerCommands() {
+	minZero := float64(0)
 	commands := []*discordgo.ApplicationCommand{
 		// === Existing commands (DO NOT TOUCH definitions) ===
 		{
@@ -129,6 +130,15 @@ func (b *Bot) registerCommands() {
 						{Type: discordgo.ApplicationCommandOptionString, Name: "reason", Description: "Reason for removal", Required: false},
 					},
 				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "assign-manager",
+					Description: "Assign a direct manager to an agent",
+					Options: []*discordgo.ApplicationCommandOption{
+						{Type: discordgo.ApplicationCommandOptionUser, Name: "agent", Description: "The agent", Required: true},
+						{Type: discordgo.ApplicationCommandOptionUser, Name: "manager", Description: "The manager to assign", Required: true},
+					},
+				},
 			},
 		},
 
@@ -161,6 +171,142 @@ func (b *Bot) registerCommands() {
 					Description: "List active contracting managers",
 				},
 			},
+		},
+		{
+			Name:        "tracker",
+			Description: "License verification tracker (Staff only)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "overview",
+					Description: "Overall license verification progress",
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "agency",
+					Description: "License verification progress by agency",
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "recruiter",
+					Description: "License verification progress by recruiter within an agency",
+					Options: []*discordgo.ApplicationCommandOption{
+						{Type: discordgo.ApplicationCommandOptionString, Name: "agency", Description: "Agency name (e.g. TFC, Radiant)", Required: true},
+					},
+				},
+			},
+		},
+		// === Activity / Leaderboard commands ===
+		{
+			Name:        "log",
+			Description: "Log your daily activity (calls, appointments, etc.)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "calls", Description: "Number of calls made", Required: false, MinValue: &minZero},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "appointments", Description: "Number of appointments set", Required: false, MinValue: &minZero},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "presentations", Description: "Number of presentations given", Required: false, MinValue: &minZero},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "policies", Description: "Number of policies written", Required: false, MinValue: &minZero},
+				{Type: discordgo.ApplicationCommandOptionInteger, Name: "recruits", Description: "Number of recruits signed", Required: false, MinValue: &minZero},
+				{Type: discordgo.ApplicationCommandOptionString, Name: "notes", Description: "Optional notes", Required: false},
+			},
+		},
+		{
+			Name:        "leaderboard",
+			Description: "View activity leaderboard",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "weekly",
+					Description: "This week's leaderboard",
+					Options: []*discordgo.ApplicationCommandOption{
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "type",
+							Description: "Activity type to rank by",
+							Required:    false,
+							Choices: []*discordgo.ApplicationCommandOptionChoice{
+								{Name: "All", Value: "all"},
+								{Name: "Calls", Value: "calls"},
+								{Name: "Appointments", Value: "appointments"},
+								{Name: "Presentations", Value: "presentations"},
+								{Name: "Policies", Value: "policies"},
+								{Name: "Recruits", Value: "recruits"},
+							},
+						},
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "monthly",
+					Description: "This month's leaderboard",
+					Options: []*discordgo.ApplicationCommandOption{
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "type",
+							Description: "Activity type to rank by",
+							Required:    false,
+							Choices: []*discordgo.ApplicationCommandOptionChoice{
+								{Name: "All", Value: "all"},
+								{Name: "Calls", Value: "calls"},
+								{Name: "Appointments", Value: "appointments"},
+								{Name: "Presentations", Value: "presentations"},
+								{Name: "Policies", Value: "policies"},
+								{Name: "Recruits", Value: "recruits"},
+							},
+						},
+					},
+				},
+			},
+		},
+		// === Zoom verticals ===
+		{
+			Name:        "zoom",
+			Description: "Manage zoom training verticals",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "list",
+					Description: "List available zoom verticals",
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "join",
+					Description: "Join a zoom vertical",
+					Options: []*discordgo.ApplicationCommandOption{
+						{Type: discordgo.ApplicationCommandOptionInteger, Name: "id", Description: "Vertical ID", Required: true},
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "leave",
+					Description: "Leave a zoom vertical",
+					Options: []*discordgo.ApplicationCommandOption{
+						{Type: discordgo.ApplicationCommandOptionInteger, Name: "id", Description: "Vertical ID", Required: true},
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "create",
+					Description: "Create a new zoom vertical (Staff only)",
+					Options: []*discordgo.ApplicationCommandOption{
+						{Type: discordgo.ApplicationCommandOptionString, Name: "name", Description: "Vertical name", Required: true},
+						{Type: discordgo.ApplicationCommandOptionString, Name: "description", Description: "Description", Required: false},
+						{Type: discordgo.ApplicationCommandOptionString, Name: "zoom_link", Description: "Zoom meeting link", Required: false},
+						{Type: discordgo.ApplicationCommandOptionString, Name: "schedule", Description: "Meeting schedule (e.g. 'Mon/Wed 7pm ET')", Required: false},
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "delete",
+					Description: "Delete a zoom vertical (Staff only)",
+					Options: []*discordgo.ApplicationCommandOption{
+						{Type: discordgo.ApplicationCommandOptionInteger, Name: "id", Description: "Vertical ID to delete", Required: true},
+					},
+				},
+			},
+		},
+		{
+			Name:        "role-audit",
+			Description: "Audit role conflicts across all members (Staff only)",
 		},
 		{
 			Name:        "onboarding-setup",

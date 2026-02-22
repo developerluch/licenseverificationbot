@@ -14,6 +14,7 @@ import (
 	"license-bot-go/config"
 	"license-bot-go/db"
 	"license-bot-go/email"
+	"license-bot-go/ghl"
 	"license-bot-go/scrapers"
 	"license-bot-go/scrapers/captcha"
 	"license-bot-go/tlsclient"
@@ -36,6 +37,7 @@ type Bot struct {
 	session    *discordgo.Session
 	registry   *scrapers.Registry
 	mailer     *email.Client
+	ghlClient  *ghl.Client
 	modalState sync.Map // userID (string) -> *ModalTempData
 }
 
@@ -45,7 +47,7 @@ func New(cfg *config.Config, database *db.DB, tlsClient *tlsclient.Client) (*Bot
 		return nil, fmt.Errorf("bot: discordgo session: %w", err)
 	}
 
-	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers
+	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsDirectMessages
 
 	var cs *captcha.CapSolver
 	if cfg.CapSolverAPIKey != "" {
@@ -59,12 +61,26 @@ func New(cfg *config.Config, database *db.DB, tlsClient *tlsclient.Client) (*Bot
 		log.Println("Resend email client configured")
 	}
 
+	ghlClient := ghl.NewClient(ghl.Config{
+		APIKey:      cfg.GHLAPIKey,
+		LocationID:  cfg.GHLLocationID,
+		PipelineID:  cfg.GHLPipelineID,
+		StageMap:    cfg.GHLStageMap(),
+		CFDiscordID: cfg.GHLCFDiscordID,
+		CFAgency:    cfg.GHLCFAgency,
+		CFState:     cfg.GHLCFState,
+	})
+	if ghlClient != nil {
+		log.Println("GoHighLevel CRM client configured")
+	}
+
 	return &Bot{
-		cfg:      cfg,
-		db:       database,
-		session:  session,
-		registry: registry,
-		mailer:   mailer,
+		cfg:       cfg,
+		db:        database,
+		session:   session,
+		registry:  registry,
+		mailer:    mailer,
+		ghlClient: ghlClient,
 	}, nil
 }
 
@@ -130,6 +146,16 @@ func (b *Bot) handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate
 		b.handleAgentCommand(s, i)
 	case "contracting":
 		b.handleContractingCommand(s, i)
+	case "tracker":
+		b.handleTrackerCommand(s, i)
+	case "log":
+		b.handleLogCommand(s, i)
+	case "leaderboard":
+		b.handleLeaderboardCommand(s, i)
+	case "zoom":
+		b.handleZoomCommand(s, i)
+	case "role-audit":
+		b.handleRoleAudit(s, i)
 	case "restart":
 		b.handleRestart(s, i)
 	case "onboarding-setup":
@@ -160,6 +186,10 @@ func (b *Bot) handleComponent(s *discordgo.Session, i *discordgo.InteractionCrea
 	case strings.HasPrefix(customID, "vipa:checkin:"):
 		b.handleCheckinResponse(s, i)
 
+	// Approval buttons (vipa:approve:{id} or vipa:deny:{id})
+	case strings.HasPrefix(customID, "vipa:approve:"), strings.HasPrefix(customID, "vipa:deny:"):
+		b.handleApprovalButton(s, i)
+
 	// Setup checklist buttons (vipa:setup:{item_key} or vipa:setup_complete_all)
 	case customID == "vipa:setup_complete_all":
 		b.handleSetupCompleteAll(s, i)
@@ -172,13 +202,15 @@ func (b *Bot) handleComponent(s *discordgo.Session, i *discordgo.InteractionCrea
 func (b *Bot) handleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	customID := i.ModalSubmitData().CustomID
 
-	switch customID {
-	case "vipa:modal_step1":
+	switch {
+	case customID == "vipa:modal_step1":
 		b.handleStep1Submit(s, i)
-	case "vipa:modal_step2":
+	case customID == "vipa:modal_step2":
 		b.handleStep2Submit(s, i)
-	case "vipa:modal_step2b":
+	case customID == "vipa:modal_step2b":
 		b.handleStep2bSubmit(s, i)
+	case strings.HasPrefix(customID, "vipa:deny_reason:"):
+		b.handleDenyReasonModal(s, i)
 	}
 }
 

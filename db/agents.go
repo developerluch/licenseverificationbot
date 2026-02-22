@@ -24,53 +24,15 @@ func (d *DB) LogActivity(ctx context.Context, discordID int64, eventType, detail
 
 // GetAgentsByStage returns all agents at a given stage (excluding kicked).
 func (d *DB) GetAgentsByStage(ctx context.Context, stage int) ([]Agent, error) {
-	return d.queryAgents(ctx,
-		`SELECT discord_id, guild_id,
-         COALESCE(first_name,''), COALESCE(last_name,''),
-         COALESCE(phone_number,''), COALESCE(email,''),
-         COALESCE(email_opt_in, false),
-         COALESCE(state,''), COALESCE(license_verified, false),
-         COALESCE(license_npn,''), COALESCE(current_stage, 1),
-         COALESCE(agency,''), COALESCE(upline_manager,''),
-         COALESCE(experience_level,''), COALESCE(license_status,'none'),
-         COALESCE(production_written,''), COALESCE(lead_source,''),
-         COALESCE(vision_goals,''), COALESCE(comp_pct,''),
-         COALESCE(show_comp, false),
-         COALESCE(role_background,''), COALESCE(fun_hobbies,''),
-         COALESCE(notification_pref,'discord'),
-         COALESCE(course_enrolled, false),
-         COALESCE(contracting_booked, false), COALESCE(contracting_completed, false),
-         COALESCE(setup_completed, false),
-         form_completed_at, sorted_at, activated_at, kicked_at,
-         COALESCE(kicked_reason,''),
-         last_active, created_at, updated_at
-         FROM onboarding_agents
+	query := fmt.Sprintf(`SELECT %s FROM onboarding_agents
          WHERE current_stage = $1 AND kicked_at IS NULL
-         ORDER BY created_at DESC`, stage)
+         ORDER BY created_at DESC`, AgentSelectColumns(""))
+	return d.queryAgents(ctx, query, stage)
 }
 
 // GetAllAgents returns all agents, optionally including kicked ones.
 func (d *DB) GetAllAgents(ctx context.Context, includeKicked bool) ([]Agent, error) {
-	query := `SELECT discord_id, guild_id,
-         COALESCE(first_name,''), COALESCE(last_name,''),
-         COALESCE(phone_number,''), COALESCE(email,''),
-         COALESCE(email_opt_in, false),
-         COALESCE(state,''), COALESCE(license_verified, false),
-         COALESCE(license_npn,''), COALESCE(current_stage, 1),
-         COALESCE(agency,''), COALESCE(upline_manager,''),
-         COALESCE(experience_level,''), COALESCE(license_status,'none'),
-         COALESCE(production_written,''), COALESCE(lead_source,''),
-         COALESCE(vision_goals,''), COALESCE(comp_pct,''),
-         COALESCE(show_comp, false),
-         COALESCE(role_background,''), COALESCE(fun_hobbies,''),
-         COALESCE(notification_pref,'discord'),
-         COALESCE(course_enrolled, false),
-         COALESCE(contracting_booked, false), COALESCE(contracting_completed, false),
-         COALESCE(setup_completed, false),
-         form_completed_at, sorted_at, activated_at, kicked_at,
-         COALESCE(kicked_reason,''),
-         last_active, created_at, updated_at
-         FROM onboarding_agents`
+	query := fmt.Sprintf(`SELECT %s FROM onboarding_agents`, AgentSelectColumns(""))
 	if !includeKicked {
 		query += ` WHERE kicked_at IS NULL`
 	}
@@ -81,31 +43,12 @@ func (d *DB) GetAllAgents(ctx context.Context, includeKicked bool) ([]Agent, err
 // SearchAgents searches agents by name (first or last).
 func (d *DB) SearchAgents(ctx context.Context, query string) ([]Agent, error) {
 	pattern := "%" + query + "%"
-	return d.queryAgents(ctx,
-		`SELECT discord_id, guild_id,
-         COALESCE(first_name,''), COALESCE(last_name,''),
-         COALESCE(phone_number,''), COALESCE(email,''),
-         COALESCE(email_opt_in, false),
-         COALESCE(state,''), COALESCE(license_verified, false),
-         COALESCE(license_npn,''), COALESCE(current_stage, 1),
-         COALESCE(agency,''), COALESCE(upline_manager,''),
-         COALESCE(experience_level,''), COALESCE(license_status,'none'),
-         COALESCE(production_written,''), COALESCE(lead_source,''),
-         COALESCE(vision_goals,''), COALESCE(comp_pct,''),
-         COALESCE(show_comp, false),
-         COALESCE(role_background,''), COALESCE(fun_hobbies,''),
-         COALESCE(notification_pref,'discord'),
-         COALESCE(course_enrolled, false),
-         COALESCE(contracting_booked, false), COALESCE(contracting_completed, false),
-         COALESCE(setup_completed, false),
-         form_completed_at, sorted_at, activated_at, kicked_at,
-         COALESCE(kicked_reason,''),
-         last_active, created_at, updated_at
-         FROM onboarding_agents
+	q := fmt.Sprintf(`SELECT %s FROM onboarding_agents
          WHERE (LOWER(first_name) LIKE LOWER($1) OR LOWER(last_name) LIKE LOWER($1))
            AND kicked_at IS NULL
          ORDER BY created_at DESC
-         LIMIT 50`, pattern)
+         LIMIT 50`, AgentSelectColumns(""))
+	return d.queryAgents(ctx, q, pattern)
 }
 
 // GetAgentActivity returns recent activity events for an agent.
@@ -187,25 +130,8 @@ func (d *DB) queryAgents(ctx context.Context, query string, args ...interface{})
 
 	var result []Agent
 	for rows.Next() {
-		var a Agent
-		if err := rows.Scan(
-			&a.DiscordID, &a.GuildID, &a.FirstName, &a.LastName,
-			&a.PhoneNumber, &a.Email, &a.EmailOptIn, &a.State, &a.LicenseVerified,
-			&a.LicenseNPN, &a.CurrentStage,
-			&a.Agency, &a.UplineManager,
-			&a.ExperienceLevel, &a.LicenseStatus,
-			&a.ProductionWritten, &a.LeadSource,
-			&a.VisionGoals, &a.CompPct,
-			&a.ShowComp,
-			&a.RoleBackground, &a.FunHobbies,
-			&a.NotificationPref,
-			&a.CourseEnrolled,
-			&a.ContractingBooked, &a.ContractingCompleted,
-			&a.SetupCompleted,
-			&a.FormCompletedAt, &a.SortedAt, &a.ActivatedAt, &a.KickedAt,
-			&a.KickedReason,
-			&a.LastActive, &a.CreatedAt, &a.UpdatedAt,
-		); err != nil {
+		a, err := ScanAgent(rows.Scan)
+		if err != nil {
 			return nil, fmt.Errorf("db: scan agent: %w", err)
 		}
 		result = append(result, a)

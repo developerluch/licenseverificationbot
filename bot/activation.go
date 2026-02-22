@@ -242,6 +242,9 @@ func (b *Bot) activateAgent(s *discordgo.Session, discordID, guildID int64, memb
 	})
 	b.db.LogActivity(context.Background(), discordID, "activated", "Agent completed setup and is now active")
 
+	// GHL sync
+	go b.syncGHLStage(discordID, db.StageActive)
+
 	userID := strconv.FormatInt(discordID, 10)
 	guildIDStr := strconv.FormatInt(guildID, 10)
 

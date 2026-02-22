@@ -47,7 +47,10 @@ func (cs *CapSolver) SolveTurnstile(ctx context.Context, websiteURL, siteKey str
 			"websiteKey": siteKey,
 		},
 	}
-	taskJSON, _ := json.Marshal(taskPayload)
+	taskJSON, err := json.Marshal(taskPayload)
+	if err != nil {
+		return "", fmt.Errorf("capsolver: failed to marshal task: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.capsolver.com/createTask", strings.NewReader(string(taskJSON)))
 	if err != nil {
@@ -61,7 +64,10 @@ func (cs *CapSolver) SolveTurnstile(ctx context.Context, websiteURL, siteKey str
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("capsolver: failed to read response: %w", err)
+	}
 
 	var createResp struct {
 		ErrorID          int    `json:"errorId"`
@@ -81,7 +87,10 @@ func (cs *CapSolver) SolveTurnstile(ctx context.Context, websiteURL, siteKey str
 		"clientKey": cs.APIKey,
 		"taskId":    createResp.TaskID,
 	}
-	pollJSON, _ := json.Marshal(pollPayload)
+	pollJSON, err := json.Marshal(pollPayload)
+	if err != nil {
+		return "", fmt.Errorf("capsolver: failed to marshal poll: %w", err)
+	}
 
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
@@ -102,8 +111,11 @@ func (cs *CapSolver) SolveTurnstile(ctx context.Context, websiteURL, siteKey str
 			continue // Retry on network error
 		}
 
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if err != nil {
+			continue
+		}
 
 		var pollResp struct {
 			ErrorID  int    `json:"errorId"`

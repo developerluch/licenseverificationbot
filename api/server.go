@@ -38,13 +38,27 @@ func NewServer(cfg *config.Config, database *db.DB) *Server {
 	mux.HandleFunc("GET /api/v1/dashboard/summary", auth(s.handleSummary))
 	mux.HandleFunc("GET /api/v1/dashboard/at-risk", auth(s.handleAtRisk))
 
+	// Tracker endpoints
+	mux.HandleFunc("GET /api/v1/tracker/overview", auth(s.handleTrackerOverview))
+	mux.HandleFunc("GET /api/v1/tracker/agencies", auth(s.handleTrackerAgencies))
+	mux.HandleFunc("GET /api/v1/tracker/recruiters", auth(s.handleTrackerRecruiters))
+
+	// Leaderboard endpoints
+	mux.HandleFunc("GET /api/v1/leaderboard/weekly", auth(s.handleWeeklyLeaderboard))
+	mux.HandleFunc("GET /api/v1/leaderboard/monthly", auth(s.handleMonthlyLeaderboard))
+
+	// Approval endpoints
+	mux.HandleFunc("GET /api/v1/approvals/{id}", auth(s.handleGetApproval))
+
 	handler := s.corsMiddleware(mux)
 
 	s.srv = &http.Server{
-		Addr:         ":" + cfg.APIPort,
-		Handler:      handler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		Addr:              ":" + cfg.APIPort,
+		Handler:           handler,
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	return s
