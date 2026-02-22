@@ -45,7 +45,7 @@ func (b *Bot) handleGetStarted(s *discordgo.Session, i *discordgo.InteractionCre
 						CustomID:    "agency",
 						Label:       "Agency Team",
 						Style:       discordgo.TextInputShort,
-						Placeholder: "TFC, Radiant, GBU, or Other",
+						Placeholder: "TFC, Radiant, GBU, Illuminate, Synergy, Elite One, etc.",
 						Required:    true,
 						MaxLength:   50,
 					},
@@ -796,6 +796,18 @@ func normalizeAgency(raw string) string {
 		return "Radiant"
 	case lower == "gbu":
 		return "GBU"
+	case strings.Contains(lower, "trulight") || strings.Contains(lower, "tru light"):
+		return "TruLight"
+	case strings.Contains(lower, "thrive"):
+		return "Thrive"
+	case strings.Contains(lower, "the point") || lower == "thepoint":
+		return "The Point"
+	case strings.Contains(lower, "synergy"):
+		return "Synergy"
+	case strings.Contains(lower, "illuminate"):
+		return "Illuminate"
+	case strings.Contains(lower, "elite one") || strings.Contains(lower, "elite 1") || lower == "eliteone":
+		return "Elite One"
 	default:
 		return "Other"
 	}

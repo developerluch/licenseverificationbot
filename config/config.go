@@ -38,10 +38,16 @@ type Config struct {
 	ActiveAgentRoleID string
 
 	// Agency roles
-	TFCRoleID        string
-	RadiantRoleID    string
-	GBURoleID        string
-	UnassignedRoleID string
+	TFCRoleID          string
+	RadiantRoleID      string
+	GBURoleID          string
+	TruLightRoleID     string
+	ThriveRoleID       string
+	ThePointRoleID     string
+	SynergyRoleID      string
+	IlluminateRoleID   string
+	EliteOneRoleID     string
+	UnassignedRoleID   string
 
 	// Staff roles (comma-separated)
 	StaffRoleIDs string
@@ -85,6 +91,12 @@ func MustLoad() *Config {
 		TFCRoleID:         os.Getenv("TFC_ROLE_ID"),
 		RadiantRoleID:     os.Getenv("RADIANT_ROLE_ID"),
 		GBURoleID:         os.Getenv("GBU_ROLE_ID"),
+		TruLightRoleID:    os.Getenv("TRULIGHT_ROLE_ID"),
+		ThriveRoleID:      os.Getenv("THRIVE_ROLE_ID"),
+		ThePointRoleID:    os.Getenv("THE_POINT_ROLE_ID"),
+		SynergyRoleID:     os.Getenv("SYNERGY_ROLE_ID"),
+		IlluminateRoleID:  os.Getenv("ILLUMINATE_ROLE_ID"),
+		EliteOneRoleID:    os.Getenv("ELITE_ONE_ROLE_ID"),
 		UnassignedRoleID:  os.Getenv("UNASSIGNED_ROLE_ID"),
 
 		StaffRoleIDs: os.Getenv("STAFF_ROLE_IDS"),
@@ -162,6 +174,18 @@ func (c *Config) GetAgencyRoleID(agency string) string {
 		return c.RadiantRoleID
 	case "gbu":
 		return c.GBURoleID
+	case "trulight", "tru light", "ffl trulight":
+		return c.TruLightRoleID
+	case "thrive", "ffl thrive":
+		return c.ThriveRoleID
+	case "the point", "thepoint", "ffl the point":
+		return c.ThePointRoleID
+	case "synergy", "ffl synergy":
+		return c.SynergyRoleID
+	case "illuminate", "ffl illuminate":
+		return c.IlluminateRoleID
+	case "elite one", "eliteone", "elite 1", "ffl elite one":
+		return c.EliteOneRoleID
 	default:
 		return c.UnassignedRoleID
 	}
