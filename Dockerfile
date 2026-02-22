@@ -3,6 +3,7 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+# cache-bust: v2
 RUN CGO_ENABLED=0 GOOS=linux go build -o /bot .
 
 FROM alpine:3.19
