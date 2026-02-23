@@ -32,13 +32,20 @@ type ModalTempData struct {
 }
 
 type Bot struct {
-	cfg        *config.Config
-	db         *db.DB
-	session    *discordgo.Session
-	registry   *scrapers.Registry
-	mailer     *email.Client
-	ghlClient  *ghl.Client
-	modalState sync.Map // userID (string) -> *ModalTempData
+	cfg              *config.Config
+	db               *db.DB
+	session          *discordgo.Session
+	registry         *scrapers.Registry
+	mailer           *email.Client
+	ghlClient        *ghl.Client
+	modalState       sync.Map // userID (string) -> *ModalTempData
+	welcomeMessages  sync.Map // userID (string) -> welcomeMsgRef{channelID, messageID}
+}
+
+// welcomeMsgRef stores the channel and message ID for a user's welcome message in #start-here.
+type welcomeMsgRef struct {
+	ChannelID string
+	MessageID string
 }
 
 func New(cfg *config.Config, database *db.DB, tlsClient *tlsclient.Client) (*Bot, error) {
@@ -47,7 +54,7 @@ func New(cfg *config.Config, database *db.DB, tlsClient *tlsclient.Client) (*Bot
 		return nil, fmt.Errorf("bot: discordgo session: %w", err)
 	}
 
-	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsDirectMessages
+	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsDirectMessages | discordgo.IntentsGuildMessages
 
 	var cs *captcha.CapSolver
 	if cfg.CapSolverAPIKey != "" {
@@ -88,6 +95,7 @@ func (b *Bot) Run(ctx context.Context) error {
 	b.session.AddHandler(b.handleInteraction)
 	b.session.AddHandler(b.handleMemberUpdate)
 	b.session.AddHandler(b.handleMemberJoin)
+	b.session.AddHandler(b.handleMessageCreate)
 
 	if err := b.session.Open(); err != nil {
 		return fmt.Errorf("bot: open session: %w", err)
@@ -152,6 +160,8 @@ func (b *Bot) handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate
 		b.handleLogCommand(s, i)
 	case "leaderboard":
 		b.handleLeaderboardCommand(s, i)
+	case "start":
+		b.handleStart(s, i)
 	case "zoom":
 		b.handleZoomCommand(s, i)
 	case "role-audit":
@@ -231,6 +241,26 @@ func (b *Bot) cleanupModalState(ctx context.Context) {
 				return true
 			})
 		}
+	}
+}
+
+// handleMessageCreate auto-deletes user messages in #start-here to keep it clean.
+func (b *Bot) handleMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	// Only act on #start-here channel
+	if b.cfg.StartHereChannelID == "" || m.ChannelID != b.cfg.StartHereChannelID {
+		return
+	}
+	// Don't delete bot's own messages
+	if m.Author.ID == s.State.User.ID {
+		return
+	}
+	// Don't delete other bot messages
+	if m.Author.Bot {
+		return
+	}
+	// Delete the user's message
+	if err := s.ChannelMessageDelete(m.ChannelID, m.ID); err != nil {
+		log.Printf("start-here: failed to delete message from %s: %v", m.Author.ID, err)
 	}
 }
 

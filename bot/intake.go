@@ -14,6 +14,24 @@ import (
 
 // handleGetStarted responds to the "Get Started" button click by presenting Step 1 modal.
 func (b *Bot) handleGetStarted(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Delete the welcome message from #start-here (fire-and-forget)
+	userID := ""
+	if i.Member != nil {
+		userID = i.Member.User.ID
+	} else if i.User != nil {
+		userID = i.User.ID
+	}
+	if userID != "" {
+		if ref, ok := b.welcomeMessages.LoadAndDelete(userID); ok {
+			r := ref.(welcomeMsgRef)
+			go func() {
+				if err := s.ChannelMessageDelete(r.ChannelID, r.MessageID); err != nil {
+					log.Printf("Onboarding: failed to delete welcome msg for %s: %v", userID, err)
+				}
+			}()
+		}
+	}
+
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseModal,
 		Data: &discordgo.InteractionResponseData{
@@ -706,13 +724,25 @@ func (b *Bot) handleRestart(s *discordgo.Session, i *discordgo.InteractionCreate
 	})
 }
 
-// sortAndAssignRoles assigns @Student + agency role, and optionally @Licensed-Agent.
+// sortAndAssignRoles assigns @Student + agency role + @Onboarded, and optionally @Licensed-Agent.
 func (b *Bot) sortAndAssignRoles(s *discordgo.Session, userID, guildID, agency, licenseStatus string) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("sortAndAssignRoles panic: %v", r)
 		}
 	}()
+
+	// Remove @New role (join-gate) and assign @Onboarded role (unlock all channels)
+	if b.cfg.NewRoleID != "" {
+		if err := s.GuildMemberRoleRemove(guildID, userID, b.cfg.NewRoleID); err != nil {
+			log.Printf("Intake: failed to remove @New role from %s: %v", userID, err)
+		}
+	}
+	if b.cfg.OnboardedRoleID != "" {
+		if err := s.GuildMemberRoleAdd(guildID, userID, b.cfg.OnboardedRoleID); err != nil {
+			log.Printf("Intake: failed to add Onboarded role to %s: %v", userID, err)
+		}
+	}
 
 	// Always assign Student role first
 	if b.cfg.StudentRoleID != "" {

@@ -36,6 +36,8 @@ type Config struct {
 	NewAgentChannelID  string
 
 	// Onboarding roles
+	NewRoleID         string // Assigned on join, removed after form completion
+	OnboardedRoleID   string
 	ActiveAgentRoleID string
 
 	// Agency roles
@@ -122,6 +124,8 @@ func MustLoad() *Config {
 		RulesChannelID:     os.Getenv("RULES_CHANNEL_ID"),
 		NewAgentChannelID:  os.Getenv("NEW_AGENT_CHANNEL_ID"),
 
+		NewRoleID:         os.Getenv("NEW_ROLE_ID"),
+		OnboardedRoleID:   os.Getenv("ONBOARDED_ROLE_ID"),
 		ActiveAgentRoleID: os.Getenv("ACTIVE_AGENT_ROLE_ID"),
 		TFCRoleID:         os.Getenv("TFC_ROLE_ID"),
 		RadiantRoleID:     os.Getenv("RADIANT_ROLE_ID"),

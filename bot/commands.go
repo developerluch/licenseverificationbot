@@ -309,6 +309,10 @@ func (b *Bot) registerCommands() {
 			Description: "Audit role conflicts across all members (Staff only)",
 		},
 		{
+			Name:        "start",
+			Description: "Restart onboarding if you missed the welcome message",
+		},
+		{
 			Name:        "onboarding-setup",
 			Description: "Post the Get Started panel in #start-here (Admin only)",
 		},
