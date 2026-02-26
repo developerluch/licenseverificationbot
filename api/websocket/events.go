@@ -60,6 +60,7 @@ type LicenseVerifiedData struct {
 	State     string `json:"state"`
 	NPN       string `json:"npn"`
 	Status    string `json:"status"` // "verified", "failed", "manual"
+	FullName  string `json:"full_name"`
 }
 
 type AgentKickedData struct {
@@ -99,4 +100,5 @@ type FormCompletedData struct {
 	DiscordID string `json:"discord_id"`
 	FullName  string `json:"full_name"`
 	Agency    string `json:"agency"`
+	License   string `json:"license"`
 }
