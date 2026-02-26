@@ -6,6 +6,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"license-bot-go/api/websocket"
 	"license-bot-go/db"
 )
 
@@ -40,6 +41,13 @@ func (b *Bot) handleMemberJoin(s *discordgo.Session, m *discordgo.GuildMemberAdd
 	b.db.LogActivity(context.Background(), userIDInt, "joined", "Member joined the server")
 
 	log.Printf("Onboarding: new member %s (%s) joined", m.User.Username, m.User.ID)
+
+	// Broadcast agent_joined event to WebSocket clients
+	b.publishEvent(websocket.EventAgentJoined, websocket.AgentJoinedData{
+		DiscordID: m.User.ID,
+		Username:  m.User.Username,
+		Stage:     db.StageWelcome,
+	})
 
 	// Assign @New role so they only see #start-here
 	if b.cfg.NewRoleID != "" {

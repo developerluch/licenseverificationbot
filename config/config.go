@@ -176,7 +176,9 @@ func MustLoad() *Config {
 	if cfg.LogLevel == "" {
 		cfg.LogLevel = "INFO"
 	}
-	if cfg.APIPort == "" {
+	if port := os.Getenv("PORT"); port != "" {
+		cfg.APIPort = port
+	} else if cfg.APIPort == "" {
 		cfg.APIPort = "8080"
 	}
 

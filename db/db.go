@@ -288,6 +288,75 @@ func (d *DB) migrate(ctx context.Context) error {
 			joined_at TIMESTAMPTZ DEFAULT NOW(),
 			UNIQUE(discord_id, vertical_id)
 		)`,
+
+		// Phase 7: Portal tables
+		`CREATE TABLE IF NOT EXISTS agent_profiles (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			agent_id TEXT NOT NULL UNIQUE,
+			bio TEXT,
+			city TEXT,
+			timezone TEXT,
+			linkedin_url TEXT,
+			photo_url TEXT,
+			start_date DATE,
+			comp_tier_id UUID,
+			manager_id TEXT,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			updated_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS comp_tiers (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			name TEXT NOT NULL,
+			percentage INT NOT NULL DEFAULT 0,
+			sort_order INT NOT NULL DEFAULT 0,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			updated_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`DO $$ BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM information_schema.table_constraints
+				WHERE constraint_name = 'fk_agent_profiles_comp_tier'
+			) THEN
+				ALTER TABLE agent_profiles
+				ADD CONSTRAINT fk_agent_profiles_comp_tier
+				FOREIGN KEY (comp_tier_id) REFERENCES comp_tiers(id) ON DELETE SET NULL;
+			END IF;
+		END $$`,
+		`CREATE TABLE IF NOT EXISTS agent_leads (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			agent_id TEXT NOT NULL,
+			first_name TEXT NOT NULL,
+			last_name TEXT NOT NULL,
+			email TEXT,
+			phone TEXT,
+			source TEXT,
+			status TEXT NOT NULL DEFAULT 'new',
+			notes TEXT,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			updated_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS agent_training_items (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			agent_id TEXT NOT NULL,
+			title TEXT NOT NULL,
+			description TEXT,
+			status TEXT NOT NULL DEFAULT 'pending',
+			due_date DATE,
+			completed_at TIMESTAMPTZ,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			updated_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS agent_schedule_events (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			agent_id TEXT NOT NULL,
+			title TEXT NOT NULL,
+			description TEXT,
+			start_time TIMESTAMPTZ NOT NULL,
+			end_time TIMESTAMPTZ NOT NULL,
+			type TEXT NOT NULL DEFAULT 'other',
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			updated_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
 	}
 
 	for _, m := range migrations {

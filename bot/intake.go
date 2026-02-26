@@ -9,6 +9,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"license-bot-go/api/websocket"
 	"license-bot-go/db"
 )
 
@@ -472,6 +473,20 @@ func (b *Bot) handleStep2Submit(s *discordgo.Session, i *discordgo.InteractionCr
 
 	b.db.LogActivity(context.Background(), userIDInt, "form_complete",
 		fmt.Sprintf("Agency: %s, License: %s, Enrolled: %v, State: %s", step1.Agency, step1.LicenseStatus, courseEnrolled, homeState))
+
+	// Broadcast form_completed event
+	b.publishEvent(websocket.EventFormCompleted, websocket.FormCompletedData{
+		DiscordID: userID,
+		FullName:  step1.FullName,
+		Agency:    step1.Agency,
+		License:   step1.LicenseStatus,
+	})
+	// Broadcast stage_changed event
+	b.publishEvent(websocket.EventStageChanged, websocket.StageChangedData{
+		DiscordID: userID,
+		NewStage:  stage,
+		ChangedBy: "onboarding_form",
+	})
 
 	// GHL CRM sync (fire-and-forget)
 	go b.syncAgentToGHL(userIDInt, guildIDInt)

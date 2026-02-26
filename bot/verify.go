@@ -9,6 +9,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"license-bot-go/api/websocket"
 	"license-bot-go/db"
 	"license-bot-go/scrapers"
 )
@@ -150,6 +151,19 @@ func (b *Bot) handleVerify(s *discordgo.Session, i *discordgo.InteractionCreate)
 			ExpirationDate: match.ExpirationDate,
 			LOAs:           match.LOAs,
 			Found:          true,
+		})
+
+		// Broadcast license_verified event
+		b.publishEvent(websocket.EventLicenseVerified, websocket.LicenseVerifiedData{
+			DiscordID: userID,
+			State:     state,
+			FullName:  firstName + " " + lastName,
+			NPN:       match.NPN,
+		})
+		b.publishEvent(websocket.EventStageChanged, websocket.StageChangedData{
+			DiscordID: userID,
+			NewStage:  db.StageVerified,
+			ChangedBy: "verify_command",
 		})
 
 		// Fire-and-forget secondary actions

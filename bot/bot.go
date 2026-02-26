@@ -11,6 +11,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"license-bot-go/api/websocket"
 	"license-bot-go/config"
 	"license-bot-go/db"
 	"license-bot-go/email"
@@ -38,6 +39,7 @@ type Bot struct {
 	registry         *scrapers.Registry
 	mailer           *email.Client
 	ghlClient        *ghl.Client
+	hub              *websocket.Hub
 	modalState       sync.Map // userID (string) -> *ModalTempData
 	welcomeMessages  sync.Map // userID (string) -> welcomeMsgRef{channelID, messageID}
 }
@@ -48,7 +50,7 @@ type welcomeMsgRef struct {
 	MessageID string
 }
 
-func New(cfg *config.Config, database *db.DB, tlsClient *tlsclient.Client) (*Bot, error) {
+func New(cfg *config.Config, database *db.DB, tlsClient *tlsclient.Client, hub *websocket.Hub) (*Bot, error) {
 	session, err := discordgo.New("Bot " + cfg.DiscordToken)
 	if err != nil {
 		return nil, fmt.Errorf("bot: discordgo session: %w", err)
@@ -88,7 +90,13 @@ func New(cfg *config.Config, database *db.DB, tlsClient *tlsclient.Client) (*Bot
 		registry:  registry,
 		mailer:    mailer,
 		ghlClient: ghlClient,
+		hub:       hub,
 	}, nil
+}
+
+// Session returns the underlying Discord session for use by other components.
+func (b *Bot) Session() *discordgo.Session {
+	return b.session
 }
 
 func (b *Bot) Run(ctx context.Context) error {
@@ -261,6 +269,13 @@ func (b *Bot) handleMessageCreate(s *discordgo.Session, m *discordgo.MessageCrea
 	// Delete the user's message
 	if err := s.ChannelMessageDelete(m.ChannelID, m.ID); err != nil {
 		log.Printf("start-here: failed to delete message from %s: %v", m.Author.ID, err)
+	}
+}
+
+// publishEvent sends an event to the WebSocket hub if available.
+func (b *Bot) publishEvent(eventType string, data interface{}) {
+	if b.hub != nil {
+		b.hub.Publish(websocket.NewEvent(eventType, data))
 	}
 }
 

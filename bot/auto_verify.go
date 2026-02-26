@@ -8,6 +8,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"license-bot-go/api/websocket"
 	"license-bot-go/db"
 	"license-bot-go/scrapers"
 )
@@ -109,6 +110,14 @@ func (b *Bot) onLicensedRoleAdded(s *discordgo.Session, e *discordgo.GuildMember
 
 	if result.Found && result.Match != nil {
 		log.Printf("Auto-verify: SUCCESS for %s %s (%s)", firstName, lastName, state)
+
+		// Broadcast license_verified event
+		b.publishEvent(websocket.EventLicenseVerified, websocket.LicenseVerifiedData{
+			DiscordID: userID,
+			State:     state,
+			FullName:  firstName + " " + lastName,
+			NPN:       result.Match.NPN,
+		})
 
 		// Mark any existing deadline as verified
 		b.db.MarkDeadlineVerified(context.Background(), userIDInt)

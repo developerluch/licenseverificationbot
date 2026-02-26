@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"license-bot-go/api"
+	"license-bot-go/api/websocket"
 	"license-bot-go/bot"
 	"license-bot-go/config"
 	"license-bot-go/db"
@@ -32,7 +33,10 @@ func main() {
 	tlsClient := tlsclient.New()
 	log.Println("TLS client ready")
 
-	b, err := bot.New(cfg, database, tlsClient)
+	// Create WebSocket hub for real-time event broadcasting
+	hub := websocket.NewHub()
+
+	b, err := bot.New(cfg, database, tlsClient, hub)
 	if err != nil {
 		log.Fatalf("Bot init failed: %v", err)
 	}
@@ -41,9 +45,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Start WebSocket hub
+	go hub.Run(ctx)
+
 	// Start API server if configured
 	if cfg.APIToken != "" {
-		apiServer := api.NewServer(cfg, database)
+		apiServer := api.NewServer(cfg, database, b.Session(), hub)
 		go apiServer.Start(ctx)
 	}
 
