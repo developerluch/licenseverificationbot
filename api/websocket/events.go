@@ -16,6 +16,9 @@ const (
 	EventRoleAssigned     = "role_assigned"
 	EventMessageSent      = "message_sent"
 	EventFormCompleted    = "form_completed"
+	EventAgentCreated    = "agent_created"
+	EventAgentVerified   = "agent_verified"
+	EventBulkImport      = "bulk_import"
 )
 
 // Event is the envelope sent to all WebSocket clients.
@@ -101,4 +104,26 @@ type FormCompletedData struct {
 	FullName  string `json:"full_name"`
 	Agency    string `json:"agency"`
 	License   string `json:"license"`
+}
+
+type AgentCreatedData struct {
+	DiscordID   string `json:"discord_id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	AvatarURL   string `json:"avatar_url"`
+	Stage       int    `json:"stage"`
+	CreatedBy   string `json:"created_by"`
+}
+
+type AgentVerifiedFromDashboard struct {
+	DiscordID string `json:"discord_id"`
+	Verified  bool   `json:"verified"`
+	NPN       string `json:"npn,omitempty"`
+	NewStage  int    `json:"new_stage"`
+}
+
+type BulkImportData struct {
+	Imported int `json:"imported"`
+	Skipped  int `json:"skipped"`
+	Total    int `json:"total"`
 }

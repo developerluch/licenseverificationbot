@@ -50,7 +50,7 @@ func main() {
 
 	// Start API server if configured
 	if cfg.APIToken != "" {
-		apiServer := api.NewServer(cfg, database, b.Session(), hub)
+		apiServer := api.NewServer(cfg, database, b.Session(), hub, b.Registry())
 		go apiServer.Start(ctx)
 	}
 

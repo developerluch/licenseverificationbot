@@ -13,6 +13,7 @@ import (
 	"license-bot-go/api/websocket"
 	"license-bot-go/config"
 	"license-bot-go/db"
+	"license-bot-go/scrapers"
 )
 
 // WebSocket upgrader
@@ -26,16 +27,17 @@ var upgrader = gorillaws.Upgrader{
 
 // Server is the REST API server with WebSocket support.
 type Server struct {
-	cfg     *config.Config
-	db      *db.DB
-	discord *discordgo.Session
-	hub     *websocket.Hub
-	srv     *http.Server
+	cfg      *config.Config
+	db       *db.DB
+	discord  *discordgo.Session
+	hub      *websocket.Hub
+	registry *scrapers.Registry
+	srv      *http.Server
 }
 
 // NewServer creates a new API server with WebSocket hub and Discord session.
-func NewServer(cfg *config.Config, database *db.DB, discord *discordgo.Session, hub *websocket.Hub) *Server {
-	s := &Server{cfg: cfg, db: database, discord: discord, hub: hub}
+func NewServer(cfg *config.Config, database *db.DB, discord *discordgo.Session, hub *websocket.Hub, registry *scrapers.Registry) *Server {
+	s := &Server{cfg: cfg, db: database, discord: discord, hub: hub, registry: registry}
 
 	mux := http.NewServeMux()
 
@@ -111,6 +113,16 @@ func NewServer(cfg *config.Config, database *db.DB, discord *discordgo.Session, 
 	mux.HandleFunc("PUT /api/v1/portal/comp-tiers/{tierID}", auth(s.handleUpdateCompTier))
 	mux.HandleFunc("DELETE /api/v1/portal/comp-tiers/{tierID}", auth(s.handleDeleteCompTier))
 	mux.HandleFunc("PUT /api/v1/portal/comp-tiers/reorder", auth(s.handleReorderCompTiers))
+
+	// Discord lookup
+	mux.HandleFunc("GET /api/v1/discord/members/{discordID}", auth(s.handleDiscordMemberLookup))
+
+	// Agent creation + bulk import
+	mux.HandleFunc("POST /api/v1/agents", auth(s.handleCreateAgent))
+	mux.HandleFunc("POST /api/v1/agents/bulk-import", auth(s.handleBulkImport))
+
+	// Dashboard-triggered verification
+	mux.HandleFunc("POST /api/v1/agents/{discordID}/verify", auth(s.handleVerifyAgent))
 
 	handler := s.corsMiddleware(mux)
 

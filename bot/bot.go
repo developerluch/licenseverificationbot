@@ -99,6 +99,11 @@ func (b *Bot) Session() *discordgo.Session {
 	return b.session
 }
 
+// Registry returns the scraper registry for use by other components (e.g. API server).
+func (b *Bot) Registry() *scrapers.Registry {
+	return b.registry
+}
+
 func (b *Bot) Run(ctx context.Context) error {
 	b.session.AddHandler(b.handleInteraction)
 	b.session.AddHandler(b.handleMemberUpdate)
