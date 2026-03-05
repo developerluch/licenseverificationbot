@@ -309,6 +309,14 @@ func (b *Bot) registerCommands() {
 			Description: "Audit role conflicts across all members (Staff only)",
 		},
 		{
+			Name:        "ticket-setup",
+			Description: "Post the general support ticket panel (Staff only)",
+		},
+		{
+			Name:        "wavv-ticket-setup",
+			Description: "Post the WAVV support ticket panel (Staff only)",
+		},
+		{
 			Name:        "start",
 			Description: "Restart onboarding if you missed the welcome message",
 		},

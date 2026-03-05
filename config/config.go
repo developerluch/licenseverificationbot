@@ -55,14 +55,26 @@ type Config struct {
 	// Staff roles (comma-separated)
 	StaffRoleIDs string
 
+	// WAVV
+	WAVVSubscriberRoleID string
+
 	// Scheduler config
-	InactivityKickWeeks int
-	CheckinDay          int // 0=Sunday, 1=Monday, ..., 6=Saturday
-	CheckinHour         int // Hour in ET (0-23)
+	InactivityKickWeeks  int
+	UnlicensedKickDays   int    // Days before unlicensed agents are kicked (default: 60)
+	UnlicensedWarnDays   string // Comma-separated warning days (e.g., "15,30,45,59")
+	CheckinDay           int    // 0=Sunday, 1=Monday, ..., 6=Saturday
+	CheckinHour          int    // Hour in ET (0-23)
 
 	// Tracker
 	TrackerChannelID string
 	NudgeAfterDays   int
+
+	// Audit/logging channels
+	AuditLogChannelID string
+
+	// Ticket channels
+	TicketChannelID     string
+	WAVVTicketChannelID string
 
 	// Agency owner Discord IDs (for approval flow)
 	AgencyOwnerTFC       string
@@ -140,7 +152,13 @@ func MustLoad() *Config {
 
 		StaffRoleIDs: os.Getenv("STAFF_ROLE_IDS"),
 
+		WAVVSubscriberRoleID: os.Getenv("WAVV_SUBSCRIBER_ROLE_ID"),
+
 		TrackerChannelID: os.Getenv("TRACKER_CHANNEL_ID"),
+
+		AuditLogChannelID:   os.Getenv("AUDIT_LOG_CHANNEL_ID"),
+		TicketChannelID:     os.Getenv("TICKET_CHANNEL_ID"),
+		WAVVTicketChannelID: os.Getenv("WAVV_TICKET_CHANNEL_ID"),
 
 		AgencyOwnerTFC:       os.Getenv("AGENCY_OWNER_TFC"),
 		AgencyOwnerRadiant:   os.Getenv("AGENCY_OWNER_RADIANT"),
@@ -183,6 +201,11 @@ func MustLoad() *Config {
 	}
 
 	cfg.InactivityKickWeeks = getEnvInt("INACTIVITY_KICK_WEEKS", 4)
+	cfg.UnlicensedKickDays = getEnvInt("UNLICENSED_KICK_DAYS", 60)
+	cfg.UnlicensedWarnDays = os.Getenv("UNLICENSED_WARN_DAYS")
+	if cfg.UnlicensedWarnDays == "" {
+		cfg.UnlicensedWarnDays = "15,30,45,59"
+	}
 	cfg.CheckinDay = getEnvInt("CHECKIN_DAY", 1) // 1 = Monday
 	cfg.CheckinHour = getEnvInt("CHECKIN_HOUR", 9)
 	cfg.NudgeAfterDays = getEnvInt("NUDGE_AFTER_DAYS", 30)
@@ -300,6 +323,22 @@ func (c *Config) GetAgencyOwnerID(agency string) string {
 	default:
 		return ""
 	}
+}
+
+// UnlicensedWarnDaysList returns the warning days as a slice of ints.
+func (c *Config) UnlicensedWarnDaysList() []int {
+	if c.UnlicensedWarnDays == "" {
+		return []int{15, 30, 45, 59}
+	}
+	parts := strings.Split(c.UnlicensedWarnDays, ",")
+	var result []int
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if n, err := strconv.Atoi(p); err == nil {
+			result = append(result, n)
+		}
+	}
+	return result
 }
 
 func getEnvInt(key string, defaultVal int) int {

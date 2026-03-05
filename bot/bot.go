@@ -185,6 +185,10 @@ func (b *Bot) handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate
 		b.handleOnboardingSetup(s, i)
 	case "setup-rules":
 		b.handleSetupRules(s, i)
+	case "ticket-setup":
+		b.handleTicketSetup(s, i)
+	case "wavv-ticket-setup":
+		b.handleWAVVTicketSetup(s, i)
 	}
 }
 
@@ -218,6 +222,12 @@ func (b *Bot) handleComponent(s *discordgo.Session, i *discordgo.InteractionCrea
 		b.handleSetupCompleteAll(s, i)
 	case strings.HasPrefix(customID, "vipa:setup:"):
 		b.handleSetupItem(s, i)
+
+	// Ticket buttons
+	case customID == "vipa:ticket_open_general", customID == "vipa:ticket_open_wavv":
+		b.handleTicketOpen(s, i)
+	case strings.HasPrefix(customID, "vipa:ticket_close:"):
+		b.handleTicketClose(s, i)
 	}
 }
 
@@ -234,6 +244,8 @@ func (b *Bot) handleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCr
 		b.handleStep2bSubmit(s, i)
 	case strings.HasPrefix(customID, "vipa:deny_reason:"):
 		b.handleDenyReasonModal(s, i)
+	case customID == "vipa:ticket_modal_general", customID == "vipa:ticket_modal_wavv":
+		b.handleTicketModalSubmit(s, i)
 	}
 }
 

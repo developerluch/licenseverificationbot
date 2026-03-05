@@ -12,7 +12,7 @@ import (
 	"license-bot-go/config"
 )
 
-// Stage constants for the 8-stage onboarding pipeline.
+// Stage constants for the onboarding pipeline.
 const (
 	StageWelcome     = 1
 	StageFormStart   = 2
@@ -22,6 +22,7 @@ const (
 	StageContracting = 6
 	StageSetup       = 7
 	StageActive      = 8
+	StageKicked      = 9
 )
 
 // StageMap maps legacy text stage values to integer stages.
@@ -34,6 +35,7 @@ var StageMap = map[string]int{
 	"contracting": StageContracting,
 	"setup":       StageSetup,
 	"active":      StageActive,
+	"kicked":      StageKicked,
 }
 
 type DB struct {
@@ -357,6 +359,10 @@ func (d *DB) migrate(ctx context.Context) error {
 			created_at TIMESTAMPTZ DEFAULT NOW(),
 			updated_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
+
+		// Phase 8: Org chart position persistence
+		`ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS position_x DOUBLE PRECISION`,
+		`ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS position_y DOUBLE PRECISION`,
 	}
 
 	for _, m := range migrations {
@@ -701,6 +707,34 @@ type Agent struct {
 	GHLContactID             string
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
+}
+
+// AgentRow is an alias for Agent used by the scheduler for unlicensed kick checks.
+type AgentRow = Agent
+
+// GetUnlicensedAgents returns all agents in the Student stage (stage 4) who have completed
+// the onboarding form but haven't been licensed yet. Used by the 60-day kick scheduler.
+func (d *DB) GetUnlicensedAgents(ctx context.Context) ([]Agent, error) {
+	query := fmt.Sprintf(`SELECT %s FROM onboarding_agents
+		WHERE current_stage = $1
+		  AND form_completed_at IS NOT NULL
+		  AND COALESCE(license_verified, false) = false
+		ORDER BY form_completed_at ASC`, AgentSelectColumns(""))
+	rows, err := d.pool.QueryContext(ctx, query, StageStudent)
+	if err != nil {
+		return nil, fmt.Errorf("db: get unlicensed agents: %w", err)
+	}
+	defer rows.Close()
+
+	var result []Agent
+	for rows.Next() {
+		a, err := ScanAgent(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("db: scan unlicensed agent: %w", err)
+		}
+		result = append(result, a)
+	}
+	return result, rows.Err()
 }
 
 // AgentSelectColumns returns the COALESCE'd column list for SELECT queries on onboarding_agents.

@@ -72,7 +72,10 @@ func (b *Bot) runSchedulerCycle(mailer *email.Client) {
 	// 6. Recruiter nudges for unlicensed agents past threshold
 	b.sendRecruiterNudges(ctx)
 
-	// 7. Daily tracker auto-post (only once per day, early afternoon ET)
+	// 7. Unlicensed agent 60-day kick check (daily)
+	b.checkUnlicensedKicks(ctx)
+
+	// 8. Daily tracker auto-post (only once per day, early afternoon ET)
 	if nowET.Hour() >= 13 && nowET.Hour() < 14 {
 		b.postDailyTracker(ctx)
 	}
@@ -398,4 +401,159 @@ func (b *Bot) postDailyTracker(ctx context.Context) {
 
 	b.session.ChannelMessageSendEmbed(channelID, embed)
 	log.Println("Scheduler: posted daily tracker update")
+}
+
+// checkUnlicensedKicks checks all unlicensed (Student) agents and:
+// - Sends DM warnings at configured days (default: 15, 30, 45, 59)
+// - Kicks at the configured deadline day (default: 60)
+// - Logs kicks to #audit-logs and DMs the agent's upline manager
+func (b *Bot) checkUnlicensedKicks(ctx context.Context) {
+	kickDays := b.cfg.UnlicensedKickDays
+	if kickDays <= 0 {
+		return
+	}
+	warnDays := b.cfg.UnlicensedWarnDaysList()
+
+	// Get all agents in Student stage who completed the form
+	agents, err := b.db.GetUnlicensedAgents(ctx)
+	if err != nil {
+		log.Printf("Scheduler: failed to get unlicensed agents: %v", err)
+		return
+	}
+
+	guildID := b.cfg.GuildID
+
+	for _, agent := range agents {
+		if agent.FormCompletedAt == nil {
+			continue
+		}
+
+		daysSinceForm := int(time.Since(*agent.FormCompletedAt).Hours() / 24)
+		userID := strconv.FormatInt(agent.DiscordID, 10)
+
+		// Check if they should be kicked
+		if daysSinceForm >= kickDays {
+			b.kickUnlicensedAgent(ctx, agent, userID, guildID, daysSinceForm)
+			continue
+		}
+
+		// Check if they need a warning
+		for _, warnDay := range warnDays {
+			if daysSinceForm == warnDay {
+				daysLeft := kickDays - daysSinceForm
+				b.warnUnlicensedAgent(agent, userID, daysSinceForm, daysLeft)
+				break
+			}
+		}
+	}
+}
+
+// warnUnlicensedAgent sends a DM warning about the approaching kick deadline.
+func (b *Bot) warnUnlicensedAgent(agent db.AgentRow, userID string, daysSinceForm, daysLeft int) {
+	var urgency string
+	if daysLeft <= 1 {
+		urgency = "**FINAL WARNING:** "
+	} else if daysLeft <= 7 {
+		urgency = "**URGENT:** "
+	} else {
+		urgency = ""
+	}
+
+	name := agent.FirstName
+	if name == "" {
+		name = "Agent"
+	}
+
+	msg := fmt.Sprintf(
+		"%sHi %s, you have **%d day(s) remaining** to get your insurance license verified.\n\n"+
+			"You joined VIPA %d days ago. All agents must be licensed within %d days or will be removed from the server.\n\n"+
+			"**How to verify:** Use `/verify first_name:YourFirst last_name:YourLast state:XX` in the server.\n\n"+
+			"Need help? Contact your upline manager.",
+		urgency, name, daysLeft, daysSinceForm, b.cfg.UnlicensedKickDays)
+
+	b.dmUser(b.session, userID, msg)
+	log.Printf("Scheduler: warned unlicensed agent %s (%s) — day %d, %d days left",
+		name, userID, daysSinceForm, daysLeft)
+}
+
+// kickUnlicensedAgent removes the agent from the server and logs it.
+func (b *Bot) kickUnlicensedAgent(ctx context.Context, agent db.AgentRow, userID, guildID string, daysSinceForm int) {
+	name := agent.FirstName + " " + agent.LastName
+	if name == " " {
+		name = fmt.Sprintf("Agent #%d", agent.DiscordID)
+	}
+
+	// DM the agent before kicking
+	b.dmUser(b.session, userID, fmt.Sprintf(
+		"Hi %s, your %d-day deadline to obtain your insurance license has expired.\n\n"+
+			"You have been removed from the VIPA Discord server. "+
+			"If you believe this is an error or wish to return, please contact your upline manager to request a re-invite.",
+		agent.FirstName, b.cfg.UnlicensedKickDays))
+
+	// Kick from server
+	reason := fmt.Sprintf("Unlicensed after %d days (auto-kick)", daysSinceForm)
+	err := b.session.GuildMemberDeleteWithReason(guildID, userID, reason)
+	if err != nil {
+		log.Printf("Scheduler: failed to kick %s (%s): %v", name, userID, err)
+		return
+	}
+
+	log.Printf("Scheduler: kicked unlicensed agent %s (%s) after %d days", name, userID, daysSinceForm)
+
+	// Update DB
+	stage := db.StageKicked
+	b.db.UpsertAgent(ctx, agent.DiscordID, agent.GuildID, db.AgentUpdate{
+		CurrentStage: &stage,
+	})
+	b.db.LogActivity(ctx, agent.DiscordID, "kicked", reason)
+
+	// Post to #audit-logs
+	auditChannelID := b.cfg.AuditLogChannelID
+	if auditChannelID == "" {
+		auditChannelID = b.cfg.AdminNotificationChannelID
+	}
+	if auditChannelID != "" {
+		embed := &discordgo.MessageEmbed{
+			Title: "Agent Kicked — Unlicensed Deadline Expired",
+			Description: fmt.Sprintf(
+				"**Agent:** %s (<@%s>)\n"+
+					"**Agency:** %s\n"+
+					"**Upline:** %s\n"+
+					"**Days Elapsed:** %d\n"+
+					"**Deadline:** %d days\n\n"+
+					"Agent was automatically removed for not obtaining their license within the required timeframe.",
+				name, userID,
+				nvl(agent.Agency, "Unknown"),
+				nvl(agent.UplineManager, "Unknown"),
+				daysSinceForm,
+				b.cfg.UnlicensedKickDays),
+			Color:     0xE74C3C,
+			Timestamp: time.Now().Format(time.RFC3339),
+			Footer: &discordgo.MessageEmbedFooter{
+				Text: "VIPA Auto-Kick System",
+			},
+		}
+		b.session.ChannelMessageSendEmbed(auditChannelID, embed)
+	}
+
+	// Also post to #hiring-log
+	if b.cfg.HiringLogChannelID != "" {
+		embed := &discordgo.MessageEmbed{
+			Title: "Agent Removed — License Deadline",
+			Description: fmt.Sprintf("**%s** (Agency: %s) was removed after %d days without a license.",
+				name, nvl(agent.Agency, "Unknown"), daysSinceForm),
+			Color:     0xE74C3C,
+			Timestamp: time.Now().Format(time.RFC3339),
+		}
+		b.session.ChannelMessageSendEmbed(b.cfg.HiringLogChannelID, embed)
+	}
+
+	// DM the upline manager
+	if agent.UplineManagerDiscordID != 0 {
+		managerID := strconv.FormatInt(agent.UplineManagerDiscordID, 10)
+		b.dmUser(b.session, managerID, fmt.Sprintf(
+			"**Agent Removed:** %s from your team has been removed from the VIPA server after %d days without obtaining their license.\n\n"+
+				"If you'd like to give them another chance, you can re-invite them to the server. They'll need to go through onboarding again.",
+			name, daysSinceForm))
+	}
 }
