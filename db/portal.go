@@ -73,16 +73,25 @@ type AgentScheduleEvent struct {
 }
 
 type OrgChartRow struct {
-	AgentID    string  `json:"id"`
-	FirstName  string  `json:"firstName"`
-	LastName   string  `json:"lastName"`
-	ManagerID  *string `json:"managerId"`
-	CompTierID *string `json:"compTierId"`
-	TierName   *string `json:"tierName"`
-	TierPct    *int    `json:"tierPercentage"`
-	TierOrder  *int    `json:"tierOrder"`
-	StageName  *string `json:"stageName"`
-	StageColor *string `json:"stageColor"`
+	AgentID    string   `json:"id"`
+	FirstName  string   `json:"firstName"`
+	LastName   string   `json:"lastName"`
+	ManagerID  *string  `json:"managerId"`
+	CompTierID *string  `json:"compTierId"`
+	TierName   *string  `json:"tierName"`
+	TierPct    *int     `json:"tierPercentage"`
+	TierOrder  *int     `json:"tierOrder"`
+	StageName  *string  `json:"stageName"`
+	StageColor *string  `json:"stageColor"`
+	PositionX  *float64 `json:"positionX"`
+	PositionY  *float64 `json:"positionY"`
+}
+
+// NodePosition represents a saved org chart node position.
+type NodePosition struct {
+	AgentID string  `json:"agentId"`
+	X       float64 `json:"x"`
+	Y       float64 `json:"y"`
 }
 
 type CompTierProfile struct {
@@ -674,7 +683,8 @@ func (d *DB) GetOrgChart(ctx context.Context) ([]OrgChartRow, error) {
 		`SELECT oa.discord_id::TEXT, COALESCE(oa.first_name,''), COALESCE(oa.last_name,''),
 		        ap.manager_id, ap.comp_tier_id::TEXT,
 		        ct.name, ct.percentage, ct.sort_order,
-		        COALESCE(oa.current_stage, 1)
+		        COALESCE(oa.current_stage, 1),
+		        ap.position_x, ap.position_y
 		 FROM onboarding_agents oa
 		 LEFT JOIN agent_profiles ap ON ap.agent_id = oa.discord_id::TEXT
 		 LEFT JOIN comp_tiers ct ON ct.id = ap.comp_tier_id
@@ -690,9 +700,11 @@ func (d *DB) GetOrgChart(ctx context.Context) ([]OrgChartRow, error) {
 		var r OrgChartRow
 		var managerID, compTierID, tierName sql.NullString
 		var tierPct, tierOrder sql.NullInt64
+		var posX, posY sql.NullFloat64
 		var stage int
 		if err := rows.Scan(&r.AgentID, &r.FirstName, &r.LastName,
-			&managerID, &compTierID, &tierName, &tierPct, &tierOrder, &stage); err != nil {
+			&managerID, &compTierID, &tierName, &tierPct, &tierOrder, &stage,
+			&posX, &posY); err != nil {
 			return nil, err
 		}
 		r.ManagerID = nullStr(managerID)
@@ -700,6 +712,12 @@ func (d *DB) GetOrgChart(ctx context.Context) ([]OrgChartRow, error) {
 		r.TierName = nullStr(tierName)
 		r.TierPct = nullInt(tierPct)
 		r.TierOrder = nullInt(tierOrder)
+		if posX.Valid {
+			r.PositionX = &posX.Float64
+		}
+		if posY.Valid {
+			r.PositionY = &posY.Float64
+		}
 		if name, ok := stageNames[stage]; ok {
 			r.StageName = &name
 			color := stageColors[stage]
@@ -708,4 +726,34 @@ func (d *DB) GetOrgChart(ctx context.Context) ([]OrgChartRow, error) {
 		result = append(result, r)
 	}
 	return result, rows.Err()
+}
+
+// SaveOrgChartPositions saves node positions for the org chart.
+func (d *DB) SaveOrgChartPositions(ctx context.Context, positions []NodePosition) error {
+	tx, err := d.pool.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("db: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx,
+		`UPDATE agent_profiles SET position_x = $1, position_y = $2, updated_at = NOW() WHERE agent_id = $3`)
+	if err != nil {
+		return fmt.Errorf("db: prepare: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, p := range positions {
+		if _, err := stmt.ExecContext(ctx, p.X, p.Y, p.AgentID); err != nil {
+			return fmt.Errorf("db: save position %s: %w", p.AgentID, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// ResetOrgChartPositions clears all saved node positions.
+func (d *DB) ResetOrgChartPositions(ctx context.Context) error {
+	_, err := d.pool.ExecContext(ctx,
+		`UPDATE agent_profiles SET position_x = NULL, position_y = NULL, updated_at = NOW()`)
+	return err
 }

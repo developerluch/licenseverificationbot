@@ -521,6 +521,8 @@ func (s *Server) handleGetOrgChart(w http.ResponseWriter, r *http.Request) {
 	type profileJSON struct {
 		ManagerID *string       `json:"managerId"`
 		CompTier  *compTierJSON `json:"compTier,omitempty"`
+		PositionX *float64      `json:"positionX,omitempty"`
+		PositionY *float64      `json:"positionY,omitempty"`
 	}
 	type stageJSON struct {
 		Name  string `json:"name"`
@@ -543,7 +545,7 @@ func (s *Server) handleGetOrgChart(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Always include profile if we have any profile data
-		p := &profileJSON{ManagerID: row.ManagerID}
+		p := &profileJSON{ManagerID: row.ManagerID, PositionX: row.PositionX, PositionY: row.PositionY}
 		if row.TierName != nil && row.CompTierID != nil {
 			pct := 0
 			ord := 0
@@ -749,6 +751,42 @@ func (s *Server) handleReorderCompTiers(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := s.db.ReorderCompTiers(ctx, body.IDs); err != nil {
+		jsonError(w, "database error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]string{"status": "ok"})
+}
+
+// ── Org Chart Position Handlers ──────────────────────────────────────────────
+
+func (s *Server) handleSavePositions(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	var body struct {
+		Positions []db.NodePosition `json:"positions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if len(body.Positions) == 0 {
+		jsonError(w, "positions array is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.db.SaveOrgChartPositions(ctx, body.Positions); err != nil {
+		jsonError(w, "database error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleResetPositions(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	if err := s.db.ResetOrgChartPositions(ctx); err != nil {
 		jsonError(w, "database error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

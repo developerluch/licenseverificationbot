@@ -106,6 +106,8 @@ func NewServer(cfg *config.Config, database *db.DB, discord *discordgo.Session, 
 	// Portal: Org Chart
 	mux.HandleFunc("GET /api/v1/portal/org-chart", auth(s.handleGetOrgChart))
 	mux.HandleFunc("PUT /api/v1/portal/org-chart/assign-manager", auth(s.handleAssignManager))
+	mux.HandleFunc("PUT /api/v1/portal/org-chart/positions", auth(s.handleSavePositions))
+	mux.HandleFunc("DELETE /api/v1/portal/org-chart/positions", auth(s.handleResetPositions))
 
 	// Portal: Comp Tiers
 	mux.HandleFunc("GET /api/v1/portal/comp-tiers", auth(s.handleListCompTiers))
