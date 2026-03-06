@@ -363,6 +363,39 @@ func (d *DB) migrate(ctx context.Context) error {
 		// Phase 8: Org chart position persistence
 		`ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS position_x DOUBLE PRECISION`,
 		`ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS position_y DOUBLE PRECISION`,
+
+		// Phase 9: WAVV production tracker
+		`CREATE TABLE IF NOT EXISTS wavv_sessions (
+			id SERIAL PRIMARY KEY,
+			discord_id BIGINT NOT NULL,
+			guild_id BIGINT NOT NULL,
+			session_date DATE NOT NULL DEFAULT CURRENT_DATE,
+			dials INT NOT NULL DEFAULT 0,
+			connections INT NOT NULL DEFAULT 0,
+			talk_time_mins INT NOT NULL DEFAULT 0,
+			appointments INT NOT NULL DEFAULT 0,
+			callbacks INT NOT NULL DEFAULT 0,
+			policies INT NOT NULL DEFAULT 0,
+			notes TEXT,
+			created_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_wavv_sessions_agent ON wavv_sessions(discord_id, session_date)`,
+		`CREATE INDEX IF NOT EXISTS idx_wavv_sessions_date ON wavv_sessions(session_date)`,
+
+		`CREATE TABLE IF NOT EXISTS wavv_goals (
+			id SERIAL PRIMARY KEY,
+			discord_id BIGINT NOT NULL,
+			guild_id BIGINT NOT NULL,
+			goal_type TEXT NOT NULL DEFAULT 'weekly',
+			dials INT NOT NULL DEFAULT 0,
+			connections INT NOT NULL DEFAULT 0,
+			talk_mins INT NOT NULL DEFAULT 0,
+			appointments INT NOT NULL DEFAULT 0,
+			policies INT NOT NULL DEFAULT 0,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			updated_at TIMESTAMPTZ DEFAULT NOW(),
+			UNIQUE(discord_id, goal_type)
+		)`,
 	}
 
 	for _, m := range migrations {

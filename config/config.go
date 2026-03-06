@@ -57,6 +57,7 @@ type Config struct {
 
 	// WAVV
 	WAVVSubscriberRoleID string
+	WAVVAPIKey           string // Future: for WAVV API integration when available
 
 	// Scheduler config
 	InactivityKickWeeks  int
@@ -153,6 +154,7 @@ func MustLoad() *Config {
 		StaffRoleIDs: os.Getenv("STAFF_ROLE_IDS"),
 
 		WAVVSubscriberRoleID: os.Getenv("WAVV_SUBSCRIBER_ROLE_ID"),
+		WAVVAPIKey:           os.Getenv("WAVV_API_KEY"),
 
 		TrackerChannelID: os.Getenv("TRACKER_CHANNEL_ID"),
 

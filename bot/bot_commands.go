@@ -50,5 +50,9 @@ func (b *Bot) handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate
 		b.handleTicketSetup(s, i)
 	case "wavv-ticket-setup":
 		b.handleWAVVTicketSetup(s, i)
+	case "wavv-log":
+		b.handleWavvLogCommand(s, i)
+	case "wavv-stats":
+		b.handleWavvStatsCommand(s, i)
 	}
 }

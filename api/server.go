@@ -116,6 +116,17 @@ func NewServer(cfg *config.Config, database *db.DB, discord *discordgo.Session, 
 	mux.HandleFunc("DELETE /api/v1/portal/comp-tiers/{tierID}", auth(s.handleDeleteCompTier))
 	mux.HandleFunc("PUT /api/v1/portal/comp-tiers/reorder", auth(s.handleReorderCompTiers))
 
+	// WAVV Production Tracker
+	mux.HandleFunc("GET /api/v1/wavv/overview", auth(s.handleWavvOverview))
+	mux.HandleFunc("GET /api/v1/wavv/teams", auth(s.handleWavvTeams))
+	mux.HandleFunc("GET /api/v1/wavv/leaderboard", auth(s.handleWavvLeaderboard))
+	mux.HandleFunc("GET /api/v1/wavv/agents/{discordID}/stats", auth(s.handleWavvAgentStats))
+	mux.HandleFunc("GET /api/v1/wavv/agents/{discordID}/sessions", auth(s.handleWavvAgentSessions))
+	mux.HandleFunc("GET /api/v1/wavv/agents/{discordID}/daily", auth(s.handleWavvAgentDaily))
+	mux.HandleFunc("GET /api/v1/wavv/agents/{discordID}/goal", auth(s.handleWavvGetGoal))
+	mux.HandleFunc("PUT /api/v1/wavv/agents/{discordID}/goal", auth(s.handleWavvSetGoal))
+	mux.HandleFunc("POST /api/v1/wavv/agents/{discordID}/sessions", auth(s.handleWavvLogSession))
+
 	// Discord lookup
 	mux.HandleFunc("GET /api/v1/discord/members/{discordID}", auth(s.handleDiscordMemberLookup))
 

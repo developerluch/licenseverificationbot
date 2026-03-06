@@ -17,6 +17,7 @@ func (b *Bot) registerCommands() {
 	commands = append(commands, activityCommands()...)
 	commands = append(commands, zoomCommands()...)
 	commands = append(commands, ticketsCommands()...)
+	commands = append(commands, wavvCommands()...)
 	commands = append(commands, miscCommands()...)
 
 	// Register all commands with Discord
