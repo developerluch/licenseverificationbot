@@ -396,6 +396,38 @@ func (d *DB) migrate(ctx context.Context) error {
 			updated_at TIMESTAMPTZ DEFAULT NOW(),
 			UNIQUE(discord_id, goal_type)
 		)`,
+
+		// Phase 10: WAVV API sync (auto-pull from WAVV dialer)
+		`CREATE TABLE IF NOT EXISTS wavv_api_tokens (
+			id SERIAL PRIMARY KEY,
+			token TEXT NOT NULL,
+			expires_at TIMESTAMPTZ NOT NULL,
+			created_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+
+		`CREATE TABLE IF NOT EXISTS wavv_members (
+			id SERIAL PRIMARY KEY,
+			wavv_user_id TEXT NOT NULL,
+			wavv_member_id TEXT NOT NULL UNIQUE,
+			name TEXT NOT NULL,
+			discord_id BIGINT,
+			last_sync_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_wavv_members_discord ON wavv_members(discord_id)`,
+
+		`CREATE TABLE IF NOT EXISTS wavv_day_stats (
+			id SERIAL PRIMARY KEY,
+			wavv_member_id TEXT NOT NULL,
+			stat_date DATE NOT NULL,
+			calls INT NOT NULL DEFAULT 0,
+			talk_time_sec INT NOT NULL DEFAULT 0,
+			conversations INT NOT NULL DEFAULT 0,
+			appointments INT NOT NULL DEFAULT 0,
+			dispositions JSONB DEFAULT '{}',
+			UNIQUE(wavv_member_id, stat_date)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_wavv_day_stats_date ON wavv_day_stats(stat_date)`,
+		`CREATE INDEX IF NOT EXISTS idx_wavv_day_stats_member ON wavv_day_stats(wavv_member_id, stat_date)`,
 	}
 
 	for _, m := range migrations {

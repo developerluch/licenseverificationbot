@@ -127,6 +127,14 @@ func NewServer(cfg *config.Config, database *db.DB, discord *discordgo.Session, 
 	mux.HandleFunc("PUT /api/v1/wavv/agents/{discordID}/goal", auth(s.handleWavvSetGoal))
 	mux.HandleFunc("POST /api/v1/wavv/agents/{discordID}/sessions", auth(s.handleWavvLogSession))
 
+	// WAVV Sync (auto-sync from WAVV API)
+	mux.HandleFunc("POST /api/v1/wavv/sync/token", auth(s.handleWavvSyncSetToken))
+	mux.HandleFunc("POST /api/v1/wavv/sync/force", auth(s.handleWavvSyncForce))
+	mux.HandleFunc("GET /api/v1/wavv/sync/status", auth(s.handleWavvSyncStatus))
+	mux.HandleFunc("GET /api/v1/wavv/sync/leaderboard", auth(s.handleWavvSyncLeaderboard))
+	mux.HandleFunc("GET /api/v1/wavv/sync/members", auth(s.handleWavvSyncMembers))
+	mux.HandleFunc("POST /api/v1/wavv/sync/members/link", auth(s.handleWavvSyncLinkMember))
+
 	// Discord lookup
 	mux.HandleFunc("GET /api/v1/discord/members/{discordID}", auth(s.handleDiscordMemberLookup))
 

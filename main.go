@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"license-bot-go/api"
 	"license-bot-go/api/websocket"
@@ -13,6 +14,7 @@ import (
 	"license-bot-go/config"
 	"license-bot-go/db"
 	"license-bot-go/tlsclient"
+	"license-bot-go/wavv"
 )
 
 func main() {
@@ -47,6 +49,19 @@ func main() {
 
 	// Start WebSocket hub
 	go hub.Run(ctx)
+
+	// Start WAVV sync service (syncs team stats from WAVV API every 15 minutes)
+	wavvSyncInterval := 15 * time.Minute
+	if v := os.Getenv("WAVV_SYNC_INTERVAL_MIN"); v != "" {
+		if mins, err := time.ParseDuration(v + "m"); err == nil {
+			wavvSyncInterval = mins
+		}
+	}
+	wavvSvc := wavv.NewSyncService(database, wavvSyncInterval)
+	wavvSvc.Start()
+	defer wavvSvc.Stop()
+	api.SetWavvSync(wavvSvc)
+	log.Printf("WAVV sync service started (interval: %s)", wavvSyncInterval)
 
 	// Start API server if configured
 	if cfg.APIToken != "" {
