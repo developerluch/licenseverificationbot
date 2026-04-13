@@ -20,7 +20,7 @@ func (b *Bot) checkInactivity(ctx context.Context) {
 
 	kickWeeks := b.cfg.InactivityKickWeeks
 	if kickWeeks <= 0 {
-		kickWeeks = 4
+		return // Disabled — do not warn or kick anyone
 	}
 
 	warnWeeks := kickWeeks - 1
