@@ -14,9 +14,11 @@ func (b *Bot) dmVerifyManually(s *discordgo.Session, userID string) {
 			"to verify your license and get access to agent channels.")
 }
 
-func (b *Bot) handleAutoVerifyFail(s *discordgo.Session, userID, firstName, lastName, state string, userIDInt, guildIDInt int64, result interface{}) {
+func (b *Bot) handleAutoVerifyFail(s *discordgo.Session, userID, firstName, lastName, state string, userIDInt, guildIDInt int64, result interface{}, skipDeadline bool) {
 	log.Printf("Auto-verify: FAILED for %s %s (%s)", firstName, lastName, state)
-	b.createVerificationDeadline(userIDInt, guildIDInt, firstName, lastName, state, "pending_licensed")
+	if !skipDeadline {
+		b.createVerificationDeadline(userIDInt, guildIDInt, firstName, lastName, state, "pending_licensed")
+	}
 
 	b.dmUser(s, userID, fmt.Sprintf(
 		"**License Verification Pending**\n\n"+

@@ -83,6 +83,8 @@ func (b *Bot) checkInactivity(ctx context.Context) {
 					"You haven't checked in recently. You have **%d days** before your VIPA membership is removed.\n\n"+
 					"Reply to your weekly check-in DM or use the server to stay active.",
 				daysUntilKick))
+
+			b.db.UpdateInactivityWarning(ctx, student.DiscordID)
 		}
 	}
 }

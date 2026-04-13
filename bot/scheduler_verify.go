@@ -24,6 +24,18 @@ func (b *Bot) retryVerifications(ctx context.Context, mailer *email.Client) {
 			continue
 		}
 
+		// Safety check: if user already has Licensed role, just mark verified
+		userIDStr := strconv.FormatInt(dl.DiscordID, 10)
+		guildIDStr := strconv.FormatInt(dl.GuildID, 10)
+		if b.cfg.LicensedAgentRoleID != "" {
+			member, err := b.session.GuildMember(guildIDStr, userIDStr)
+			if err == nil && member != nil && roleInList(member.Roles, b.cfg.LicensedAgentRoleID) {
+				log.Printf("Scheduler: %s already has Licensed role, marking verified", userIDStr)
+				b.db.MarkDeadlineVerified(ctx, dl.DiscordID)
+				continue
+			}
+		}
+
 		verifyCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 		result := b.performVerification(verifyCtx, dl.FirstName, dl.LastName, dl.HomeState, dl.DiscordID, dl.GuildID)
 		cancel()
@@ -33,8 +45,8 @@ func (b *Bot) retryVerifications(ctx context.Context, mailer *email.Client) {
 			b.db.MarkDeadlineVerified(ctx, dl.DiscordID)
 
 			// Assign role and notify
-			userID := strconv.FormatInt(dl.DiscordID, 10)
-			guildID := strconv.FormatInt(dl.GuildID, 10)
+			userID := userIDStr
+			guildID := guildIDStr
 
 			if b.cfg.LicensedAgentRoleID != "" {
 				b.session.GuildMemberRoleAdd(guildID, userID, b.cfg.LicensedAgentRoleID)

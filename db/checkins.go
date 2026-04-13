@@ -30,11 +30,19 @@ func (d *DB) GetStudentsForCheckin(ctx context.Context, weekStart time.Time) ([]
 }
 
 // GetInactiveAgents returns agents whose last_active is older than the given threshold.
+// Excludes agents who responded to a check-in after the threshold or were already warned today.
 func (d *DB) GetInactiveAgents(ctx context.Context, threshold time.Time) ([]Agent, error) {
 	query := fmt.Sprintf(`SELECT %s FROM onboarding_agents
          WHERE current_stage BETWEEN 1 AND 4
            AND kicked_at IS NULL
            AND (last_active IS NULL OR last_active < $1)
+           AND NOT EXISTS (
+               SELECT 1 FROM agent_weekly_checkins wc
+               WHERE wc.discord_id = onboarding_agents.discord_id
+                 AND wc.responded_at IS NOT NULL
+                 AND wc.responded_at > $1
+           )
+           AND (last_inactivity_warning_at IS NULL OR last_inactivity_warning_at < CURRENT_DATE)
          ORDER BY last_active ASC NULLS FIRST`, AgentSelectColumns(""))
 	return d.queryAgents(ctx, query, threshold)
 }
@@ -82,4 +90,12 @@ func (d *DB) GetCheckinHistory(ctx context.Context, discordID int64, limit int) 
 		result = append(result, r)
 	}
 	return result, rows.Err()
+}
+
+// UpdateInactivityWarning records the timestamp of the last inactivity warning sent.
+func (d *DB) UpdateInactivityWarning(ctx context.Context, discordID int64) error {
+	_, err := d.pool.ExecContext(ctx,
+		`UPDATE onboarding_agents SET last_inactivity_warning_at = NOW()
+         WHERE discord_id = $1`, discordID)
+	return err
 }

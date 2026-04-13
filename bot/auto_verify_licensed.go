@@ -33,6 +33,11 @@ func (b *Bot) onLicensedRoleAdded(s *discordgo.Session, e *discordgo.GuildMember
 
 	log.Printf("Auto-verify: Licensed role added for %s (%s)", e.User.Username, userID)
 
+	// Clear any existing deadline immediately — the user has the Licensed role.
+	if err := b.db.MarkDeadlineVerified(context.Background(), userIDInt); err != nil {
+		log.Printf("Auto-verify: failed to mark deadline verified for %d: %v", userIDInt, err)
+	}
+
 	// Look up agent info from local DB first
 	agent, err := b.db.GetAgent(context.Background(), userIDInt)
 
@@ -73,6 +78,6 @@ func (b *Bot) onLicensedRoleAdded(s *discordgo.Session, e *discordgo.GuildMember
 		b.postAutoVerifyToChannel(s, e, result.Match, state)
 		go b.syncGHLStage(userIDInt, db.StageVerified)
 	} else {
-		b.handleAutoVerifyFail(s, userID, firstName, lastName, state, userIDInt, guildIDInt, result)
+		b.handleAutoVerifyFail(s, userID, firstName, lastName, state, userIDInt, guildIDInt, result, true)
 	}
 }

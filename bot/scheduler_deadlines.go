@@ -24,6 +24,17 @@ func (b *Bot) handleExpiredDeadlines(ctx context.Context, mailer *email.Client) 
 	for _, dl := range expired {
 		userID := strconv.FormatInt(dl.DiscordID, 10)
 
+		// Safety check: if user already has Licensed role, clear deadline silently
+		if b.cfg.LicensedAgentRoleID != "" {
+			guildID := strconv.FormatInt(dl.GuildID, 10)
+			member, err := b.session.GuildMember(guildID, userID)
+			if err == nil && member != nil && roleInList(member.Roles, b.cfg.LicensedAgentRoleID) {
+				log.Printf("Scheduler: %s already has Licensed role, clearing expired deadline", userID)
+				b.db.MarkDeadlineVerified(ctx, dl.DiscordID)
+				continue
+			}
+		}
+
 		// DM the user
 		b.dmUser(b.session, userID,
 			"**Your 30-day verification deadline has passed.**\n\n"+

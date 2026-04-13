@@ -428,6 +428,9 @@ func (d *DB) migrate(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_wavv_day_stats_date ON wavv_day_stats(stat_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_wavv_day_stats_member ON wavv_day_stats(wavv_member_id, stat_date)`,
+
+		// Phase 11: Inactivity warning dedup
+		`ALTER TABLE onboarding_agents ADD COLUMN IF NOT EXISTS last_inactivity_warning_at TIMESTAMPTZ`,
 	}
 
 	for _, m := range migrations {
@@ -770,6 +773,7 @@ type Agent struct {
 	DirectManagerName        string
 	ApprovalStatus           string
 	GHLContactID             string
+	LastInactivityWarningAt  *time.Time
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
 }
@@ -834,6 +838,7 @@ func AgentSelectColumns(prefix string) string {
          COALESCE(%[1]sdirect_manager_name, ''),
          COALESCE(%[1]sapproval_status, 'none'),
          COALESCE(%[1]sghl_contact_id, ''),
+         %[1]slast_inactivity_warning_at,
          %[1]screated_at, %[1]supdated_at`, p)
 }
 
@@ -863,6 +868,7 @@ func ScanAgent(scan func(dest ...interface{}) error) (Agent, error) {
 		&a.DirectManagerName,
 		&a.ApprovalStatus,
 		&a.GHLContactID,
+		&a.LastInactivityWarningAt,
 		&a.CreatedAt, &a.UpdatedAt,
 	)
 	return a, err
